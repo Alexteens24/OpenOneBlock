@@ -1,5 +1,6 @@
 [versions]
 junit = "6.1.0"
+jspecify = "1.0.0"
 paper = "1.21.11-R0.1-SNAPSHOT"
 spotless = "8.8.0"
 
@@ -7,6 +8,7 @@ spotless = "8.8.0"
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
 
 [plugins]

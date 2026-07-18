@@ -14,6 +14,7 @@ subprojects {
     apply(plugin = "java-library")
 
     dependencies {
+        add("api", libraryCatalog.findLibrary("jspecify").get())
         add("testImplementation", platform(libraryCatalog.findLibrary("junit-bom").get()))
         add("testImplementation", libraryCatalog.findLibrary("junit-jupiter").get())
         add("testRuntimeOnly", libraryCatalog.findLibrary("junit-platform-launcher").get())
