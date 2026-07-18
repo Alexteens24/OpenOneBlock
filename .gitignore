@@ -1,0 +1,19 @@
+.agents/
+.codex/
+.gradle/
+.idea/
+.vscode/
+**/build/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Local server/runtime files
+run/
+logs/
+plugins/
+
+# Operating system files
+.DS_Store
+Thumbs.db
