@@ -10,7 +10,20 @@ the plugin source.
 ## Project status
 
 OpenOneBlock is in its foundation phase. The repository currently defines module boundaries and
-build tooling only; it does not yet produce an installable Paper plugin.
+build tooling plus accepted core execution semantics; it does not yet produce an installable Paper
+plugin.
+
+## Design specifications
+
+Implementation is governed by the accepted [core design specifications](docs/design/README.md):
+
+1. [Island Domain and Lifecycle](docs/design/01-island-domain-lifecycle.md)
+2. [Grid, Slot, and Border Invariants](docs/design/02-grid-slot-border.md)
+3. [Magic Block Transaction Pipeline](docs/design/03-magic-block-transaction.md)
+4. [Rule Engine Execution Semantics](docs/design/04-rule-engine-semantics.md)
+
+Changes that conflict with these safety or execution semantics require design review before code is
+changed.
 
 ## Modules
 
