@@ -74,6 +74,62 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX operations_island_kind
                 ON operations (island_id, kind)
+                """)),
+        new SqlMigration(
+            2,
+            "island allocation and active membership",
+            List.of(
+                """
+                CREATE TABLE islands (
+                    island_id TEXT PRIMARY KEY,
+                    owner_player_id TEXT NOT NULL,
+                    lifecycle_state TEXT NOT NULL CHECK (
+                        lifecycle_state IN (
+                            'ALLOCATING', 'CREATING', 'ACTIVE', 'LOCKED', 'RESETTING',
+                            'MIGRATING', 'DELETING', 'BROKEN', 'ARCHIVED'
+                        )
+                    ),
+                    primary_slot_id TEXT REFERENCES slots (slot_id),
+                    current_border_size INTEGER NOT NULL CHECK (current_border_size > 0),
+                    maximum_border_size INTEGER NOT NULL CHECK (
+                        maximum_border_size >= current_border_size
+                    ),
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    pending_operation_id TEXT UNIQUE REFERENCES operations (operation_id),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    CHECK (
+                        (lifecycle_state = 'ARCHIVED' AND primary_slot_id IS NULL)
+                        OR (lifecycle_state <> 'ARCHIVED' AND primary_slot_id IS NOT NULL)
+                    )
+                )
+                """,
+                """
+                CREATE TABLE island_memberships (
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    player_id TEXT NOT NULL,
+                    role_id TEXT NOT NULL,
+                    active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                    owner INTEGER NOT NULL CHECK (owner IN (0, 1)),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (island_id, player_id),
+                    CHECK (owner = 0 OR active = 1)
+                )
+                """,
+                """
+                CREATE UNIQUE INDEX island_memberships_one_active_island_per_player
+                ON island_memberships (player_id)
+                WHERE active = 1
+                """,
+                """
+                CREATE UNIQUE INDEX island_memberships_one_active_owner_per_island
+                ON island_memberships (island_id)
+                WHERE active = 1 AND owner = 1
+                """,
+                """
+                CREATE INDEX island_memberships_island_active
+                ON island_memberships (island_id, active)
                 """)));
   }
 }
