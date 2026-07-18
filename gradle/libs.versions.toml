@@ -2,6 +2,7 @@
 junit = "6.1.0"
 jspecify = "1.0.0"
 paper = "1.21.11-R0.1-SNAPSHOT"
+sqliteJdbc = "3.53.2.0"
 spotless = "8.8.0"
 
 [libraries]
@@ -10,6 +11,7 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
 
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
