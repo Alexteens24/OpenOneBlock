@@ -51,7 +51,7 @@ spotless {
         ktlint()
     }
     format("misc") {
-        target("*.md", ".editorconfig", ".gitattributes", ".gitignore", ".github/**/*.yml")
+        target("**/*.md", ".editorconfig", ".gitattributes", ".gitignore", ".github/**/*.yml")
         trimTrailingWhitespace()
         endWithNewline()
     }
