@@ -54,32 +54,40 @@ public final class SqliteImmediateTransactions {
     Objects.requireNonNull(work, "work");
     SQLException lastBusy = null;
     for (int attempt = 1; attempt <= maximumAttempts; attempt++) {
-      try (Connection connection = connectionFactory.open()) {
-        boolean begun = false;
-        try {
-          executeControl(connection, "BEGIN IMMEDIATE");
-          begun = true;
-          T result = work.execute(connection);
-          executeControl(connection, "COMMIT");
-          return result;
-        } catch (SQLException exception) {
-          if (begun) {
-            rollback(connection, exception);
-          }
-          if (!isBusy(exception) || attempt == maximumAttempts) {
-            throw exception;
-          }
-          lastBusy = exception;
-        } catch (RuntimeException | Error exception) {
-          if (begun) {
-            rollback(connection, exception);
-          }
+      try {
+        return executeAttempt(work);
+      } catch (SQLException exception) {
+        if (!isBusy(exception) || attempt == maximumAttempts) {
           throw exception;
         }
+        lastBusy = exception;
       }
       sleepBeforeRetry();
     }
     throw Objects.requireNonNull(lastBusy, "last busy failure");
+  }
+
+  private <T> T executeAttempt(TransactionWork<T> work) throws SQLException {
+    try (Connection connection = connectionFactory.open()) {
+      boolean begun = false;
+      try {
+        executeControl(connection, "BEGIN IMMEDIATE");
+        begun = true;
+        T result = work.execute(connection);
+        executeControl(connection, "COMMIT");
+        return result;
+      } catch (SQLException exception) {
+        if (begun) {
+          rollback(connection, exception);
+        }
+        throw exception;
+      } catch (RuntimeException | Error exception) {
+        if (begun) {
+          rollback(connection, exception);
+        }
+        throw exception;
+      }
+    }
   }
 
   private static void executeControl(Connection connection, String sql) throws SQLException {
