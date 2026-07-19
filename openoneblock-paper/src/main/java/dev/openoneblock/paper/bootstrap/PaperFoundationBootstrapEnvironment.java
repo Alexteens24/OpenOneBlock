@@ -12,6 +12,7 @@ import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
@@ -20,13 +21,16 @@ import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.Provisioned
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
 import dev.openoneblock.paper.runtime.PaperIslandChunkTicketController;
 import dev.openoneblock.paper.world.BukkitVoidWorldFactory;
+import dev.openoneblock.paper.world.PaperIslandWorldPreparation;
 import dev.openoneblock.paper.world.PaperSharedWorldManager;
 import dev.openoneblock.paper.world.ProvisionedSharedWorld;
 import dev.openoneblock.paper.world.SharedWorldSpec;
+import dev.openoneblock.paper.world.UnavailableIslandStructurePlacement;
 import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandCreationRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
+import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldProjectionCatalog;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -170,6 +174,16 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                                 ticketController,
                                 Duration.ofSeconds(
                                     configuration.operations().creationTimeoutSeconds()));
+                        SqliteWorldEffectJournal effectJournal =
+                            new SqliteWorldEffectJournal(activeFactory, activeExecutors.database());
+                        WorldPreparationCoordinator preparationCoordinator =
+                            new WorldPreparationCoordinator(
+                                effectJournal,
+                                new PaperIslandWorldPreparation(
+                                    plugin.getServer(),
+                                    scheduler,
+                                    new UnavailableIslandStructurePlacement()),
+                                Clock.systemUTC());
                         FoundationRuntime recovered =
                             new FoundationRuntime(
                                 configuration,
@@ -177,7 +191,9 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                                 locator,
                                 repository,
                                 lanes,
-                                runtimeManager);
+                                runtimeManager,
+                                effectJournal,
+                                preparationCoordinator);
                         chunkTickets = ticketController;
                         runtime = recovered;
                         return recovered;

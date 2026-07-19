@@ -17,11 +17,20 @@ import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.runtime.IslandChunkTicketLease;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.world.IslandWorldPreparation;
+import dev.openoneblock.core.world.WorldEffectJournal;
+import dev.openoneblock.core.world.WorldEffectKey;
+import dev.openoneblock.core.world.WorldEffectOutcome;
+import dev.openoneblock.core.world.WorldEffectPlan;
+import dev.openoneblock.core.world.WorldEffectReceipt;
+import dev.openoneblock.core.world.WorldEffectState;
+import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -137,6 +146,7 @@ class FoundationBootstrapCoordinatorTest {
   }
 
   private static FoundationRuntime runtime(FoundationConfigurationSnapshot configuration) {
+    WorldEffectJournal worldEffects = unavailableWorldEffects();
     return new FoundationRuntime(
         configuration,
         new WorldProjectionRegistry(List.of()),
@@ -157,7 +167,64 @@ class FoundationBootstrapCoordinatorTest {
                         return CompletableFuture.completedFuture(null);
                       }
                     }),
-            Duration.ofSeconds(1)));
+            Duration.ofSeconds(1)),
+        worldEffects,
+        new WorldPreparationCoordinator(
+            worldEffects,
+            new IslandWorldPreparation() {
+              @Override
+              public CompletionStage<WorldEffectOutcome> execute(WorldEffectPlan effect) {
+                return CompletableFuture.failedFuture(
+                    new AssertionError("unexpected world preparation"));
+              }
+
+              @Override
+              public CompletionStage<WorldEffectOutcome> verify(WorldEffectPlan effect) {
+                return CompletableFuture.failedFuture(
+                    new AssertionError("unexpected world verification"));
+              }
+            },
+            java.time.Clock.systemUTC()));
+  }
+
+  private static WorldEffectJournal unavailableWorldEffects() {
+    return new WorldEffectJournal() {
+      @Override
+      public CompletionStage<WorldEffectReceipt> register(
+          WorldEffectPlan effect, Instant recordedAt) {
+        return unavailable();
+      }
+
+      @Override
+      public CompletionStage<WorldEffectReceipt> markDispatched(
+          WorldEffectPlan effect, Instant dispatchedAt) {
+        return unavailable();
+      }
+
+      @Override
+      public CompletionStage<WorldEffectReceipt> recordOutcome(
+          WorldEffectPlan effect,
+          WorldEffectState outcome,
+          String diagnostic,
+          Instant completedAt) {
+        return unavailable();
+      }
+
+      @Override
+      public CompletionStage<Optional<WorldEffectReceipt>> find(WorldEffectKey key) {
+        return unavailable();
+      }
+
+      @Override
+      public CompletionStage<List<WorldEffectReceipt>> findByOperation(
+          dev.openoneblock.api.id.OperationId operationId) {
+        return unavailable();
+      }
+
+      private <T> CompletionStage<T> unavailable() {
+        return CompletableFuture.failedFuture(new AssertionError("unexpected effect journal use"));
+      }
+    };
   }
 
   private static final class FakeEnvironment implements FoundationBootstrapEnvironment {

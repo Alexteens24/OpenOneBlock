@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 138 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 156 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -106,6 +106,13 @@ register `/oneblock` commands or gameplay listeners.
   and no per-island repeating tasks.
 - [x] Paper plugin-ticket adapter with owning-region load/verification/mutation, overlapping lease
   reference counts, timeout/late-completion cleanup, and disable-safe emergency release.
+- [x] Crash-recoverable world preparation contracts with immutable fingerprinted plans, explicit
+  idempotency classes, durable-before-dispatch coordination, terminal evidence, cleanup requirements,
+  and fail-closed structure-provider isolation.
+- [x] SQLite migration V4 and journal for ordered world-effect receipts across restart, including
+  intent-conflict detection and database-enforced evidence-state invariants.
+- [x] Minimal Paper starter preparation using region-owned exact Vanilla block mutation, thread-safe
+  chunk snapshots for asynchronous clean-cell verification, and safe-spawn verification.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -325,33 +332,33 @@ cost.
 Goal: define the crash-recoverable application boundary for clear, starter content, spawn, and Magic
 Block setup before depending on WorldEdit.
 
-- [ ] Define immutable world-operation plans.
-- [ ] Define `IslandWorldPreparation` port.
-- [ ] Define `IslandCleanup` port.
-- [ ] Define verification results and durable effect receipts.
-- [ ] Record effect IDs before dispatching world work.
-- [ ] Make safe effects idempotent by operation/effect ID.
-- [ ] Distinguish:
+- [x] Define immutable world-operation plans.
+- [x] Define `IslandWorldPreparation` port.
+- [x] Define `IslandCleanup` port.
+- [x] Define verification results and durable effect receipts.
+- [x] Record effect IDs before dispatching world work.
+- [x] Make safe effects idempotent by operation/effect ID.
+- [x] Distinguish:
   - not started;
   - dispatched;
   - verified success;
   - verified failure;
   - ambiguous outcome.
-- [ ] Do not automatically retry ambiguous container, entity, command, or reward effects.
-- [ ] Add a minimal starter implementation that can:
+- [x] Do not automatically retry ambiguous container, entity, command, or reward effects.
+- [x] Add a minimal starter implementation that can:
   - verify a clean cell;
   - place a configured Vanilla Magic Block;
   - establish a safe spawn location;
   - verify both locations remain inside the reserved region.
-- [ ] Keep structure placement behind a port for later WorldEdit implementation.
+- [x] Keep structure placement behind a port for later WorldEdit implementation.
 
 ### Acceptance tests
 
-- [ ] Preparation only runs while island/slot are `CREATING/PREPARING`.
-- [ ] Every block mutation executes on its owning region.
-- [ ] Partial multi-region failure returns durable cleanup requirements.
-- [ ] Replaying verified effects does not place duplicates.
-- [ ] Spawn and Magic Block outside the reserved region are rejected.
+- [x] Preparation only runs while island/slot are `CREATING/PREPARING`.
+- [x] Every block mutation executes on its owning region.
+- [x] Partial multi-region failure returns durable cleanup requirements.
+- [x] Replaying verified effects does not place duplicates.
+- [x] Spawn and Magic Block outside the reserved region are rejected.
 
 ## Milestone 6 — Island creation application service (`P0`)
 
@@ -937,6 +944,7 @@ Goal: extensions add behavior without mutating internal aggregates.
 - [ ] Full island aggregate and snapshot/delta model.
 - [ ] Membership and role domain.
 - [x] Runtime/chunk lifecycle manager.
+- [x] World preparation plans, effect semantics, and minimal starter coordinator.
 - [ ] Creation/reset/delete/migration coordinators.
 - [ ] Magic Block and content engine.
 - [ ] Counters, variables, upgrades, phases, and requirements.
@@ -949,6 +957,7 @@ Goal: extensions add behavior without mutating internal aggregates.
 - [x] Typed config bootstrap.
 - [x] World provisioning at startup.
 - [x] Chunk ticket adapter.
+- [x] Minimal region-owned Vanilla starter preparation adapter.
 - [ ] Commands and messages.
 - [ ] Teleport and entity adapters.
 - [ ] Gameplay listeners using protection/application services only.
@@ -971,10 +980,11 @@ Goal: extensions add behavior without mutating internal aggregates.
 ## `openoneblock-persistence-sql`
 
 - [x] World projection catalog.
+- [x] Durable world-effect receipt journal.
 - [ ] Full island/member/Magic Block repositories.
 - [ ] Counters and typed variables.
 - [ ] Rule execution state and scheduled actions.
-- [ ] Audit logs and effect receipts.
+- [ ] Audit logs.
 - [ ] Write-behind queue and critical flush API.
 - [ ] Cleanup, recovery, and migration repositories.
 - [ ] MySQL/MariaDB dialect.
@@ -1004,8 +1014,9 @@ Migration numbering must remain append-only and checksummed.
 - [x] V1: shard allocators, slots, and operations.
 - [x] V2: islands and active memberships.
 - [x] V3: persisted world projections and geometry fingerprints.
-- [ ] V4: operation phases, request fingerprints, outcomes, and effect receipts.
-- [ ] V5: island spawn points, settings, and lifecycle lock metadata.
+- [x] V4: durable world-effect plans, dispatch evidence, outcomes, and recovery indexes.
+- [ ] V5: operation request fingerprints/outcomes plus island spawn points, settings, and lifecycle
+  lock metadata.
 - [ ] V6: Magic Blocks and sequence uniqueness.
 - [ ] V7: normalized counters and typed variables.
 - [ ] V8: phases, upgrades, and progression state.
@@ -1037,8 +1048,9 @@ Migration numbering must remain append-only and checksummed.
 - Verify correct global/region/entity/async scheduler routing.
 - Verify no world mutation executes before ownership dispatch.
 - Verify void-world creator options and existing-world fail-closed checks.
-- Latest manual smoke: Paper 1.21.11 build 132, clean install reached `READY`, restart reused the
-  persisted world projection, and bounded shutdown completed without plugin errors.
+- Latest manual smoke: Paper 1.21.11 build 132, an existing foundation database migrated through V4,
+  restart reused the persisted world projection, reached `READY`, and bounded shutdown completed
+  without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

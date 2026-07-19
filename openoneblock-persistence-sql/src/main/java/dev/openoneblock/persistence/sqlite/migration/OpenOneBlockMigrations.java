@@ -170,6 +170,65 @@ public final class OpenOneBlockMigrations {
                     FOREIGN KEY (shard_group_id, dimension_id)
                         REFERENCES world_projections (shard_group_id, dimension_id)
                 )
+                """)),
+        new SqlMigration(
+            4,
+            "durable world effect receipts",
+            List.of(
+                """
+                CREATE TABLE world_effect_receipts (
+                    operation_id TEXT NOT NULL REFERENCES operations (operation_id),
+                    effect_index INTEGER NOT NULL CHECK (effect_index >= 0),
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    effect_kind TEXT NOT NULL CHECK (
+                        effect_kind IN (
+                            'VERIFY_CLEAN_REGION', 'SET_VANILLA_BLOCK',
+                            'VERIFY_SAFE_SPAWN', 'PLACE_STRUCTURE'
+                        )
+                    ),
+                    safety TEXT NOT NULL CHECK (
+                        safety IN (
+                            'NATURALLY_IDEMPOTENT', 'DETECTABLY_IDEMPOTENT', 'NON_IDEMPOTENT'
+                        )
+                    ),
+                    plan_descriptor TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL CHECK (length(fingerprint) = 64),
+                    state TEXT NOT NULL CHECK (
+                        state IN (
+                            'NOT_STARTED', 'DISPATCHED', 'VERIFIED_SUCCESS',
+                            'VERIFIED_FAILURE', 'AMBIGUOUS'
+                        )
+                    ),
+                    dispatch_attempts INTEGER NOT NULL CHECK (dispatch_attempts >= 0),
+                    diagnostic TEXT,
+                    created_at TEXT NOT NULL,
+                    dispatched_at TEXT,
+                    completed_at TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (operation_id, effect_index),
+                    CHECK (
+                        (state = 'NOT_STARTED'
+                            AND dispatch_attempts = 0
+                            AND dispatched_at IS NULL
+                            AND completed_at IS NULL)
+                        OR (state = 'DISPATCHED'
+                            AND dispatch_attempts > 0
+                            AND dispatched_at IS NOT NULL
+                            AND completed_at IS NULL)
+                        OR (state IN ('VERIFIED_SUCCESS', 'VERIFIED_FAILURE', 'AMBIGUOUS')
+                            AND dispatch_attempts > 0
+                            AND dispatched_at IS NOT NULL
+                            AND completed_at IS NOT NULL)
+                    )
+                )
+                """,
+                """
+                CREATE INDEX world_effect_receipts_recovery
+                ON world_effect_receipts (state, updated_at)
+                """,
+                """
+                CREATE INDEX world_effect_receipts_island
+                ON world_effect_receipts (island_id, operation_id, effect_index)
                 """)));
   }
 }

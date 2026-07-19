@@ -5,6 +5,8 @@ import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.world.WorldEffectJournal;
+import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
 import java.util.Objects;
 
@@ -17,6 +19,8 @@ import java.util.Objects;
  * @param islandRepository authoritative island persistence service
  * @param islandLanes sequential mutation lanes
  * @param islandRuntimes reference-counted island chunk lifecycle manager
+ * @param worldEffects authoritative durable world-effect evidence
+ * @param worldPreparation durable-before-dispatch preparation coordinator
  */
 public record FoundationRuntime(
     FoundationConfigurationSnapshot configuration,
@@ -24,7 +28,9 @@ public record FoundationRuntime(
     InMemorySlotLocatorIndex slotLocator,
     IslandCreationRepository islandRepository,
     IslandExecutionLanes islandLanes,
-    IslandRuntimeManager islandRuntimes) {
+    IslandRuntimeManager islandRuntimes,
+    WorldEffectJournal worldEffects,
+    WorldPreparationCoordinator worldPreparation) {
   /** Validates the complete recovered service graph. */
   public FoundationRuntime {
     Objects.requireNonNull(configuration, "configuration");
@@ -33,5 +39,7 @@ public record FoundationRuntime(
     Objects.requireNonNull(islandRepository, "islandRepository");
     Objects.requireNonNull(islandLanes, "islandLanes");
     Objects.requireNonNull(islandRuntimes, "islandRuntimes");
+    Objects.requireNonNull(worldEffects, "worldEffects");
+    Objects.requireNonNull(worldPreparation, "worldPreparation");
   }
 }

@@ -26,7 +26,7 @@ class SqliteSchemaMigratorTest {
     migrator.migrate();
     migrator.migrate();
 
-    assertEquals(3, migrator.currentVersion());
+    assertEquals(4, migrator.currentVersion());
     try (Connection connection = factory.open();
         Statement statement = connection.createStatement()) {
       try (ResultSet result = statement.executeQuery("PRAGMA journal_mode")) {
@@ -42,11 +42,11 @@ class SqliteSchemaMigratorTest {
                 AND name IN (
                     'schema_migrations', 'shard_allocators', 'slots', 'operations',
                     'islands', 'island_memberships', 'world_projections',
-                    'world_projection_repairs'
+                    'world_projection_repairs', 'world_effect_receipts'
                 )
               """)) {
         assertTrue(result.next());
-        assertEquals(8, result.getInt(1));
+        assertEquals(9, result.getInt(1));
       }
     }
   }
@@ -63,7 +63,7 @@ class SqliteSchemaMigratorTest {
     }
 
     assertThrows(SqlitePersistenceException.class, migrator::migrate);
-    assertEquals(3, migrator.currentVersion());
+    assertEquals(4, migrator.currentVersion());
   }
 
   @Test

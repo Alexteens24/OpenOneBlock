@@ -1,2 +1,2 @@
-/** SQLite world identity registration, verification, drift diagnostics, and explicit adoption. */
+/** SQLite world identity verification and durable crash-recovery effect evidence. */
 package dev.openoneblock.persistence.sqlite.world;
