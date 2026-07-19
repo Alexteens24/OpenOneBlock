@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 211 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 213 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, and does not yet register gameplay listeners.
 
@@ -140,6 +140,10 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
   full-cell cleanup across dimensions, verified starter re-preparation, atomic gameplay projection
   replacement, restart resume at every phase, retained identity/team/slot/border/upgrades, and
   mandatory `BROKEN/QUARANTINED` disposition when reset safety cannot be proven.
+- [x] Non-loading `/ob admin inspect <island-id>` diagnostics combine one async durable projection
+  with an already-cached runtime snapshot and support console use without acquiring chunk tickets.
+- [x] Invalid persisted homes now use a deterministic verified same-shard overworld cell-center
+  fallback at the configured starter height before scheduler-owned chunk preparation and teleport.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -156,8 +160,8 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
   publishing `READY`; it never promotes an uncertain reset back to `ACTIVE`.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
-- [~] Player command workflow: create/home/info/help/reset/delete and the command platform are
-  implemented; admin inspect remains.
+- [x] Foundation command workflow: create/home/info/help/reset/delete/admin inspect and the command
+  platform are implemented.
 - [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, first
   Magic Block, normalized counters, and typed-variable storage are persisted; broader team roles,
   upgrades, and aggregate mutation services remain.
@@ -453,7 +457,7 @@ Goal: make the Foundation usable on a test Paper server.
 - [x] `/ob reset` with explicit confirmation token.
 - [x] `/ob info`.
 - [x] `/ob help`.
-- [ ] Basic admin inspect command.
+- [x] Basic admin inspect command.
 
 ### Teleport safety
 
@@ -461,7 +465,7 @@ Goal: make the Foundation usable on a test Paper server.
 - [x] Prepare destination chunk through region scheduler.
 - [x] Teleport players through their entity scheduler and supported async teleport API.
 - [x] Verify destination inside current border and safe build height.
-- [ ] Provide deterministic fallback when stored home is invalid.
+- [x] Provide deterministic fallback when stored home is invalid.
 
 ### Acceptance tests
 
@@ -1093,7 +1097,9 @@ Migration numbering must remain append-only and checksummed.
   migrated through V8, restart reused the persisted world projection, recovered lifecycle state,
   reached `READY`, `/ob help` exposed create/home/info/reset/delete, reset's console-player constraint
   was enforced, and bounded shutdown completed without plugin errors. The reset artifact was also
-  smoke-tested against the already-migrated V8 database without schema or recovery drift.
+  smoke-tested against the already-migrated V8 database without schema or recovery drift. The latest
+  artifact additionally exposed console-safe admin inspect help, deterministic invalid-ID usage, and
+  asynchronous not-found diagnostics before a clean shutdown.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

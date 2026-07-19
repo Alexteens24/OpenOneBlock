@@ -40,3 +40,6 @@ permissions:
   openoneblock.command.reset:
     description: Allows an owner to request and confirm island reset.
     default: true
+  openoneblock.admin.inspect:
+    description: Allows read-only inspection of island diagnostics.
+    default: op

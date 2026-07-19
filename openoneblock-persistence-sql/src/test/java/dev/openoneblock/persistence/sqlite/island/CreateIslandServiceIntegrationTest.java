@@ -115,6 +115,7 @@ class CreateIslandServiceIntegrationTest {
         new SqliteIslandQueryRepository(context.factory(), Runnable::run);
     var home = await(queries.findActiveHome(command.ownerId())).orElseThrow();
     var info = await(queries.findActiveInfo(command.ownerId())).orElseThrow();
+    var inspection = await(queries.findInspection(created.island().islandId())).orElseThrow();
     assertEquals(created.island().islandId(), home.islandId());
     assertEquals(WORLD, home.destination().worldId());
     assertEquals(created.island().version(), home.islandVersion());
@@ -124,6 +125,10 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(0, info.totalBreaks());
     assertEquals(0, info.magicBlockSequence());
     assertEquals(1, info.activeMemberCount());
+    assertEquals(IslandLifecycleState.ACTIVE, inspection.lifecycleState());
+    assertEquals(
+        created.island().primarySlot().orElseThrow().slotId(), inspection.slotId().orElseThrow());
+    assertTrue(inspection.runtime().isEmpty());
   }
 
   @Test
@@ -192,6 +197,14 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(1, cleanup.calls.get());
     assertEquals(0, count(context.factory(), "magic_blocks"));
     assertEquals(0, count(context.factory(), "island_spawn_points"));
+    var inspection =
+        await(
+                new SqliteIslandQueryRepository(context.factory(), Runnable::run)
+                    .findInspection(command.islandId()))
+            .orElseThrow();
+    assertEquals(IslandLifecycleState.ARCHIVED, inspection.lifecycleState());
+    assertTrue(inspection.slotId().isEmpty());
+    assertEquals(0, inspection.activeMemberCount());
 
     world.failEffectIndex = -1;
     CreateIslandResult retried = await(context.service().create(command(command.ownerId())));

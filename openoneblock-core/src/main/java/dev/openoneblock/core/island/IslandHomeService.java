@@ -4,7 +4,9 @@ import dev.openoneblock.api.id.OperationId;
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.api.id.ShardGroupId;
 import dev.openoneblock.core.grid.GridGeometry;
+import dev.openoneblock.core.locator.WorldProjection;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
+import dev.openoneblock.core.world.WorldSpawnPosition;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -17,6 +19,7 @@ public final class IslandHomeService {
   private final Function<ShardGroupId, GridGeometry> geometryByShard;
   private final int minimumY;
   private final int maximumYExclusive;
+  private final int fallbackFeetY;
   private final IslandDestinationPreparer destinationPreparer;
   private final IslandPlayerTeleporter teleporter;
 
@@ -28,6 +31,7 @@ public final class IslandHomeService {
    * @param geometryByShard grid lookup
    * @param minimumY inclusive configured build minimum
    * @param maximumYExclusive exclusive configured build maximum
+   * @param fallbackFeetY deterministic starter-center fallback feet height
    * @param destinationPreparer ownership-aware chunk preparation
    * @param teleporter ownership-aware player teleport
    */
@@ -37,6 +41,7 @@ public final class IslandHomeService {
       Function<ShardGroupId, GridGeometry> geometryByShard,
       int minimumY,
       int maximumYExclusive,
+      int fallbackFeetY,
       IslandDestinationPreparer destinationPreparer,
       IslandPlayerTeleporter teleporter) {
     this.repository = Objects.requireNonNull(repository, "repository");
@@ -47,6 +52,10 @@ public final class IslandHomeService {
     }
     this.minimumY = minimumY;
     this.maximumYExclusive = maximumYExclusive;
+    if (fallbackFeetY < minimumY || fallbackFeetY >= maximumYExclusive) {
+      throw new IllegalArgumentException("fallbackFeetY must fit build height");
+    }
+    this.fallbackFeetY = fallbackFeetY;
     this.destinationPreparer = Objects.requireNonNull(destinationPreparer, "destinationPreparer");
     this.teleporter = Objects.requireNonNull(teleporter, "teleporter");
   }
@@ -75,31 +84,69 @@ public final class IslandHomeService {
 
   private CompletionStage<IslandHomeResult> validatedTeleport(
       PlayerId playerId, OperationId operationId, IslandHomeSnapshot home) {
-    var destination = home.destination();
-    var projection =
-        worlds
-            .resolve(destination.worldId())
-            .orElseThrow(() -> new UnsafeIslandHomeException(home.islandId(), "unverified-world"));
-    if (!projection.shardGroupId().equals(home.shardGroupId())) {
-      return CompletableFuture.failedFuture(
-          new UnsafeIslandHomeException(home.islandId(), "world-shard-mismatch"));
-    }
-    var block = destination.feetBlock();
-    GridGeometry geometry = geometryByShard.apply(home.shardGroupId());
-    if (!geometry
-        .border(home.gridPosition(), home.currentBorderSize())
-        .contains(block.x(), block.z())) {
-      return CompletableFuture.failedFuture(
-          new UnsafeIslandHomeException(home.islandId(), "outside-current-border"));
-    }
-    if (block.y() < minimumY || block.y() >= maximumYExclusive) {
-      return CompletableFuture.failedFuture(
-          new UnsafeIslandHomeException(home.islandId(), "outside-build-height"));
-    }
+    WorldSpawnPosition destination = resolveDestination(home);
     return destinationPreparer
         .prepare(destination, operationId)
         .thenCompose(ignored -> teleporter.teleport(playerId, destination, operationId))
         .thenApply(
             ignored -> new IslandHomeResult(home.islandId(), operationId, home.islandVersion()));
+  }
+
+  private WorldSpawnPosition resolveDestination(IslandHomeSnapshot home) {
+    GridGeometry geometry =
+        Objects.requireNonNull(geometryByShard.apply(home.shardGroupId()), "geometry");
+    if (invalidReason(home, home.destination(), geometry) == null) {
+      return home.destination();
+    }
+    WorldProjection fallbackWorld =
+        worlds.projectionsForShard(home.shardGroupId()).stream()
+            .filter(projection -> projection.dimensionId().value().value().equals("overworld"))
+            .findFirst()
+            .or(() -> worlds.projectionsForShard(home.shardGroupId()).stream().findFirst())
+            .orElseThrow(
+                () -> new UnsafeIslandHomeException(home.islandId(), "no-verified-fallback-world"));
+    int centerX;
+    int centerZ;
+    try {
+      centerX =
+          Math.toIntExact(
+              Math.multiplyExact(
+                  (long) home.gridPosition().gridX(), geometry.configuration().cellSize()));
+      centerZ =
+          Math.toIntExact(
+              Math.multiplyExact(
+                  (long) home.gridPosition().gridZ(), geometry.configuration().cellSize()));
+    } catch (ArithmeticException failure) {
+      throw new UnsafeIslandHomeException(home.islandId(), "fallback-coordinate-overflow");
+    }
+    WorldSpawnPosition fallback =
+        new WorldSpawnPosition(
+            fallbackWorld.worldId(), centerX + 0.5, fallbackFeetY, centerZ + 0.5, 0, 0);
+    String invalid = invalidReason(home, fallback, geometry);
+    if (invalid != null) {
+      throw new UnsafeIslandHomeException(home.islandId(), "fallback-" + invalid);
+    }
+    return fallback;
+  }
+
+  private String invalidReason(
+      IslandHomeSnapshot home, WorldSpawnPosition destination, GridGeometry geometry) {
+    var projection = worlds.resolve(destination.worldId()).orElse(null);
+    if (projection == null) {
+      return "unverified-world";
+    }
+    if (!projection.shardGroupId().equals(home.shardGroupId())) {
+      return "world-shard-mismatch";
+    }
+    var block = destination.feetBlock();
+    if (!geometry
+        .border(home.gridPosition(), home.currentBorderSize())
+        .contains(block.x(), block.z())) {
+      return "outside-current-border";
+    }
+    if (block.y() < minimumY || block.y() >= maximumYExclusive) {
+      return "outside-build-height";
+    }
+    return null;
   }
 }

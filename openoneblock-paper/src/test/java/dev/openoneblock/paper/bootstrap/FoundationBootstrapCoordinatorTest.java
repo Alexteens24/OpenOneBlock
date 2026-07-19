@@ -235,8 +235,12 @@ class FoundationBootstrapCoordinatorTest {
             ignored -> geometry,
             minimumY,
             maximumY,
+            65,
             (destination, operationId) -> CompletableFuture.completedFuture(null),
             (playerId, destination, operationId) -> CompletableFuture.completedFuture(null));
+    dev.openoneblock.core.island.IslandInspectionService inspection =
+        new dev.openoneblock.core.island.IslandInspectionService(
+            islandId -> CompletableFuture.completedFuture(Optional.empty()), runtimes);
     dev.openoneblock.core.island.IslandDeletionRepository deletions =
         new dev.openoneblock.core.island.IslandDeletionRepository() {
           @Override
@@ -332,6 +336,7 @@ class FoundationBootstrapCoordinatorTest {
         creation,
         queries,
         home,
+        inspection,
         deletions,
         deletion,
         resets,

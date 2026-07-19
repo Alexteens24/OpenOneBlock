@@ -1,10 +1,12 @@
 package dev.openoneblock.paper.command;
 
+import dev.openoneblock.api.id.IslandId;
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandResetResult;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -88,5 +90,16 @@ public interface IslandCommandGateway {
     return new MutationSubmission<>(
         dev.openoneblock.api.id.OperationId.generate(),
         CompletableFuture.failedFuture(new UnsupportedOperationException("reset is unavailable")));
+  }
+
+  /**
+   * Queries non-loading admin diagnostics for one island.
+   *
+   * @param islandId target island
+   * @return optional immutable inspection snapshot
+   */
+  default CompletionStage<java.util.Optional<IslandInspectionSnapshot>> inspect(IslandId islandId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("inspection is unavailable"));
   }
 }

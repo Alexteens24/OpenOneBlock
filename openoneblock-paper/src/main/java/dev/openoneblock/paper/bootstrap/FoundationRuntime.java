@@ -6,6 +6,7 @@ import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandDeletionRepository;
 import dev.openoneblock.core.island.IslandHomeService;
+import dev.openoneblock.core.island.IslandInspectionService;
 import dev.openoneblock.core.island.IslandQueryRepository;
 import dev.openoneblock.core.island.IslandResetRepository;
 import dev.openoneblock.core.island.ResetIslandService;
@@ -31,6 +32,7 @@ import java.util.Objects;
  * @param islandCreation complete idempotent island creation application service
  * @param islandQueries asynchronous immutable player command projections
  * @param islandHome verified safe-home application service
+ * @param islandInspection non-loading admin inspection service
  * @param islandDeletionRepository authoritative deletion/recovery persistence
  * @param islandDeletion crash-safe verified deletion service
  * @param islandResetRepository authoritative reset/recovery persistence
@@ -48,6 +50,7 @@ public record FoundationRuntime(
     CreateIslandService islandCreation,
     IslandQueryRepository islandQueries,
     IslandHomeService islandHome,
+    IslandInspectionService islandInspection,
     IslandDeletionRepository islandDeletionRepository,
     DeleteIslandService islandDeletion,
     IslandResetRepository islandResetRepository,
@@ -65,6 +68,7 @@ public record FoundationRuntime(
     Objects.requireNonNull(islandCreation, "islandCreation");
     Objects.requireNonNull(islandQueries, "islandQueries");
     Objects.requireNonNull(islandHome, "islandHome");
+    Objects.requireNonNull(islandInspection, "islandInspection");
     Objects.requireNonNull(islandDeletionRepository, "islandDeletionRepository");
     Objects.requireNonNull(islandDeletion, "islandDeletion");
     Objects.requireNonNull(islandResetRepository, "islandResetRepository");

@@ -5,6 +5,7 @@ import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandResetResult;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
 import io.papermc.paper.command.brigadier.BasicCommand;
@@ -21,7 +22,7 @@ import org.bukkit.entity.Player;
 /** Paper lifecycle command handler for `/oneblock` and `/ob`. */
 public final class OpenOneBlockCommand implements BasicCommand {
   private static final List<String> ROOT_SUGGESTIONS =
-      List.of("create", "home", "info", "reset", "delete", "help");
+      List.of("create", "home", "info", "reset", "delete", "admin", "help");
 
   private final PluginRuntimeLifecycle lifecycle;
   private final IslandCommandGateway islands;
@@ -65,6 +66,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "info" -> info(sender);
       case "reset" -> reset(sender, args);
       case "delete" -> delete(sender, args);
+      case "admin" -> admin(sender, args);
       default -> messages.send(sender, "command.unknown");
     }
   }
@@ -309,6 +311,79 @@ public final class OpenOneBlockCommand implements BasicCommand {
             });
   }
 
+  private void admin(CommandSender sender, String[] args) {
+    if (!sender.hasPermission(OpenOneBlockPermissions.ADMIN_INSPECT)) {
+      messages.send(sender, "command.no-permission");
+      return;
+    }
+    if (!lifecycle.isReady()) {
+      messages.send(sender, "command.not-ready");
+      return;
+    }
+    if (args.length != 3 || !args[1].equalsIgnoreCase("inspect")) {
+      messages.send(sender, "command.admin.usage");
+      return;
+    }
+    dev.openoneblock.api.id.IslandId islandId;
+    try {
+      islandId = dev.openoneblock.api.id.IslandId.parse(args[2]);
+    } catch (IllegalArgumentException failure) {
+      messages.send(sender, "command.admin.usage");
+      return;
+    }
+    islands
+        .inspect(islandId)
+        .whenComplete(
+            (inspection, failure) -> {
+              if (failure != null) {
+                CommandFailure mapped = failures.mapInspect(failure);
+                messages.send(sender, mapped.messageKey(), mapped.placeholders());
+                if (mapped.log()) {
+                  logger.log(Level.SEVERE, "OpenOneBlock island inspection failed", failure);
+                }
+                return;
+              }
+              if (inspection.isEmpty()) {
+                messages.send(
+                    sender, "command.admin.inspect.not-found", Map.of("island_id", islandId));
+                return;
+              }
+              sendInspection(sender, inspection.orElseThrow());
+            });
+  }
+
+  private void sendInspection(CommandSender sender, IslandInspectionSnapshot inspection) {
+    String runtimeState =
+        inspection.runtime().map(snapshot -> snapshot.state().name()).orElse("UNLOADED");
+    int loadedChunks = inspection.runtime().map(snapshot -> snapshot.loadedChunkCount()).orElse(0);
+    messages.send(
+        sender,
+        "command.admin.inspect",
+        Map.ofEntries(
+            Map.entry("island_id", inspection.islandId()),
+            Map.entry("owner_id", inspection.ownerId()),
+            Map.entry("lifecycle", inspection.lifecycleState()),
+            Map.entry("island_version", inspection.islandVersion()),
+            Map.entry("shard", inspection.shardGroupId().map(Object::toString).orElse("none")),
+            Map.entry("grid", inspection.gridPosition().map(Object::toString).orElse("none")),
+            Map.entry("slot_id", inspection.slotId().map(Object::toString).orElse("none")),
+            Map.entry("slot_state", inspection.slotState().map(Enum::name).orElse("none")),
+            Map.entry(
+                "slot_version", inspection.slotVersion().map(Object::toString).orElse("none")),
+            Map.entry("current_border", inspection.currentBorderSize()),
+            Map.entry("maximum_border", inspection.maximumBorderSize()),
+            Map.entry("phase", inspection.phaseId().map(Object::toString).orElse("none")),
+            Map.entry(
+                "sequence", inspection.magicBlockSequence().map(Object::toString).orElse("none")),
+            Map.entry("members", inspection.activeMemberCount()),
+            Map.entry(
+                "pending_operation",
+                inspection.pendingOperationId().map(Object::toString).orElse("none")),
+            Map.entry("runtime", runtimeState),
+            Map.entry("loaded_chunks", loadedChunks),
+            Map.entry("updated_at", inspection.updatedAt())));
+  }
+
   private void respondFailure(
       CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
     CommandFailure mapped = failures.map(failure, operationId);
@@ -377,6 +452,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "info" -> OpenOneBlockPermissions.INFO;
       case "reset" -> OpenOneBlockPermissions.RESET;
       case "delete" -> OpenOneBlockPermissions.DELETE;
+      case "admin" -> OpenOneBlockPermissions.ADMIN_INSPECT;
       default -> OpenOneBlockPermissions.HELP;
     };
   }

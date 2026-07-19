@@ -157,6 +157,20 @@ public final class CommandFailureMapper {
         true);
   }
 
+  /**
+   * Maps one admin inspection failure.
+   *
+   * @param failure asynchronous failure
+   * @return stable response mapping
+   */
+  public CommandFailure mapInspect(Throwable failure) {
+    Throwable cause = unwrap(failure);
+    if (cause instanceof CommandRuntimeUnavailableException) {
+      return new CommandFailure("command.not-ready", Map.of(), false);
+    }
+    return new CommandFailure("command.internal-error", Map.of(), true);
+  }
+
   private static Throwable unwrap(Throwable failure) {
     Throwable current = failure;
     while ((current instanceof CompletionException || current instanceof ExecutionException)

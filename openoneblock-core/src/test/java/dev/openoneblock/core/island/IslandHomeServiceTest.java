@@ -59,28 +59,27 @@ class IslandHomeServiceTest {
   }
 
   @Test
-  void unsafePersistedHomeFailsBeforePlatformEffects() {
+  void unsafePersistedHomeUsesDeterministicVerifiedCellCenterFallback() {
     List<String> effects = new ArrayList<>();
     IslandHomeSnapshot home = home(new WorldSpawnPosition(WORLD, 100.5, 65, 0.5, 0, 0));
     IslandHomeService service =
         service(
             queries(Optional.of(home)),
             (destination, operationId) -> {
+              assertEquals(defaultSpawn(), destination);
               effects.add("prepare");
               return CompletableFuture.completedFuture(null);
             },
             (playerId, destination, operationId) -> {
+              assertEquals(defaultSpawn(), destination);
               effects.add("teleport");
               return CompletableFuture.completedFuture(null);
             });
 
-    CompletionException failure =
-        assertThrows(
-            CompletionException.class,
-            () -> service.home(PLAYER, OPERATION).toCompletableFuture().join());
+    IslandHomeResult result = service.home(PLAYER, OPERATION).toCompletableFuture().join();
 
-    assertInstanceOf(UnsafeIslandHomeException.class, failure.getCause());
-    assertEquals(List.of(), effects);
+    assertEquals(new IslandHomeResult(ISLAND, OPERATION, 7), result);
+    assertEquals(List.of("prepare", "teleport"), effects);
   }
 
   @Test
@@ -130,6 +129,7 @@ class IslandHomeServiceTest {
         ignored -> GEOMETRY,
         -64,
         320,
+        65,
         preparer,
         teleporter);
   }

@@ -14,6 +14,7 @@ import dev.openoneblock.core.island.IslandAggregateSnapshot;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandResetResult;
 import dev.openoneblock.core.slot.AllocatedSlot;
@@ -212,6 +213,38 @@ class OpenOneBlockCommandTest {
   }
 
   @Test
+  void adminInspectSupportsConsoleAndDoesNotBlockOnSqlProjection() {
+    CompletableFuture<java.util.Optional<IslandInspectionSnapshot>> pending =
+        new CompletableFuture<>();
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<java.util.Optional<IslandInspectionSnapshot>>
+              inspect(IslandId islandId) {
+            assertEquals(ISLAND_ID, islandId);
+            return pending;
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+    CommandSender console =
+        sender(Set.of(OpenOneBlockPermissions.COMMAND, OpenOneBlockPermissions.ADMIN_INSPECT));
+
+    command.execute(source(console), new String[] {"admin", "inspect", ISLAND_ID.toString()});
+
+    assertEquals(List.of(), messages.keys());
+    assertFalse(pending.isDone());
+    pending.complete(java.util.Optional.of(inspection()));
+    assertEquals(List.of("command.admin.inspect"), messages.keys());
+    assertEquals(ISLAND_ID, messages.entries().getFirst().placeholders().get("island_id"));
+  }
+
+  @Test
   void deleteFirstIssuesExactConfirmationWithoutMutation() {
     CompletableFuture<ConfirmationChallenge> pending = new CompletableFuture<>();
     RecordingMessenger messages = new RecordingMessenger();
@@ -398,7 +431,8 @@ class OpenOneBlockCommandTest {
         OpenOneBlockPermissions.HOME,
         OpenOneBlockPermissions.INFO,
         OpenOneBlockPermissions.RESET,
-        OpenOneBlockPermissions.DELETE);
+        OpenOneBlockPermissions.DELETE,
+        OpenOneBlockPermissions.ADMIN_INSPECT);
   }
 
   private static Player player(Set<String> permissions) {
@@ -410,6 +444,28 @@ class OpenOneBlockCommandTest {
               case "hasPermission" -> permissions.contains(arguments[0]);
               default -> defaultValue(proxy, method, arguments);
             });
+  }
+
+  private static IslandInspectionSnapshot inspection() {
+    Instant now = Instant.parse("2026-07-19T00:00:00Z");
+    return new IslandInspectionSnapshot(
+        ISLAND_ID,
+        PlayerId.of(PLAYER_UUID),
+        IslandLifecycleState.ACTIVE,
+        9,
+        java.util.Optional.of(ShardGroupId.parse("openoneblock:primary")),
+        java.util.Optional.of(new GridPosition(0, 0)),
+        java.util.Optional.of(SlotId.generate()),
+        java.util.Optional.of(SlotState.ACTIVE),
+        java.util.Optional.of(2L),
+        64,
+        384,
+        java.util.Optional.of(dev.openoneblock.api.id.NamespacedId.parse("openoneblock:plains")),
+        java.util.Optional.of(0L),
+        1,
+        java.util.Optional.empty(),
+        java.util.Optional.empty(),
+        now);
   }
 
   private static CommandSender sender(Set<String> permissions) {

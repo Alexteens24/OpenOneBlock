@@ -11,6 +11,7 @@ import dev.openoneblock.core.island.IslandDeletionRequest;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandResetConflictException;
 import dev.openoneblock.core.island.IslandResetRequest;
 import dev.openoneblock.core.island.IslandResetResult;
@@ -233,6 +234,19 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
       return new MutationSubmission<>(
           operationId, java.util.concurrent.CompletableFuture.failedFuture(failure));
     }
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public java.util.concurrent.CompletionStage<java.util.Optional<IslandInspectionSnapshot>> inspect(
+      IslandId islandId) {
+    Objects.requireNonNull(islandId, "islandId");
+    Optional<FoundationRuntime> active = runtime.get();
+    if (active.isEmpty()) {
+      return java.util.concurrent.CompletableFuture.failedFuture(
+          new CommandRuntimeUnavailableException("not-ready"));
+    }
+    return active.orElseThrow().islandInspection().inspect(islandId);
   }
 
   private MutationSubmission<CreateIslandResult> create(PlayerId owner, OperationId operationId) {

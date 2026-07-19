@@ -23,5 +23,8 @@ public final class OpenOneBlockPermissions {
   /** Permission to request and confirm owner island reset. */
   public static final String RESET = "openoneblock.command.reset";
 
+  /** Permission to inspect persisted island and cached runtime diagnostics. */
+  public static final String ADMIN_INSPECT = "openoneblock.admin.inspect";
+
   private OpenOneBlockPermissions() {}
 }

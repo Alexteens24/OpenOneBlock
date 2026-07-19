@@ -9,6 +9,7 @@ import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandHomeService;
+import dev.openoneblock.core.island.IslandInspectionService;
 import dev.openoneblock.core.island.ResetIslandService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldEnvironment;
@@ -206,8 +207,11 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       geometryByShard,
                       minimumY,
                       maximumYExclusive,
+                      magicBlockY + 1,
                       new PaperIslandDestinationPreparer(plugin.getServer(), scheduler),
                       playerTeleporter);
+              IslandInspectionService inspectionService =
+                  new IslandInspectionService(queryRepository, runtimeManager);
               PaperIslandCleanup islandCleanup =
                   new PaperIslandCleanup(plugin, plugin.getServer(), scheduler);
               CreateIslandService creationService =
@@ -267,6 +271,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       creationService,
                       queryRepository,
                       homeService,
+                      inspectionService,
                       deletionRepository,
                       deletionService,
                       resetRepository,

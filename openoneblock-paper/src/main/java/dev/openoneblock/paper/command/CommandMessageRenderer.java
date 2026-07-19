@@ -52,7 +52,8 @@ public final class CommandMessageRenderer {
 
   private static Map<String, String> fallbacks() {
     Map<String, String> messages = new LinkedHashMap<>();
-    messages.put("command.help", "OpenOneBlock: /ob create | home | info | reset | delete");
+    messages.put(
+        "command.help", "OpenOneBlock: /ob create | home | info | reset | delete | admin inspect");
     messages.put("command.unknown", "Unknown subcommand. Use /ob help.");
     messages.put("command.player-only", "This command can only be used by a player.");
     messages.put("command.no-permission", "You do not have permission to do that.");
@@ -106,6 +107,15 @@ public final class CommandMessageRenderer {
         "command.reset.conflict",
         "Island ownership or version changed; request a new reset confirmation.");
     messages.put("command.reset.failed", "Island reset failed safely. Operation: {operation_id}");
+    messages.put("command.admin.usage", "Use /ob admin inspect <island-id>.");
+    messages.put("command.admin.inspect.not-found", "Island {island_id} does not exist.");
+    messages.put(
+        "command.admin.inspect",
+        "Island {island_id} | Owner {owner_id} | Lifecycle {lifecycle} v{island_version} | "
+            + "Shard {shard} | Grid {grid} | Slot {slot_id} {slot_state} v{slot_version} | "
+            + "Border {current_border}/{maximum_border} | Phase {phase} | Sequence {sequence} | "
+            + "Members {members} | Pending {pending_operation} | Runtime {runtime} "
+            + "({loaded_chunks} chunks) | Updated {updated_at}");
     messages.put(
         "command.confirmation.invalid", "Confirmation token is invalid, expired, or already used.");
     return Map.copyOf(messages);
