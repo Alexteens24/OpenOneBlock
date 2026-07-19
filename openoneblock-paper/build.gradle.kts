@@ -12,6 +12,7 @@ val pluginVersion = version.toString()
 dependencies {
     compileOnly(libs.paper.api)
     testImplementation(libs.paper.api)
+    implementation(libs.snakeyaml)
 
     implementation(project(":openoneblock-admin-tools"))
     implementation(project(":openoneblock-api"))
@@ -37,6 +38,7 @@ val distributableJar =
         archiveBaseName = "OpenOneBlock"
         archiveClassifier = ""
         archiveVersion = pluginVersion
+        relocate("org.yaml.snakeyaml", "dev.openoneblock.internal.snakeyaml")
     }
 
 tasks.assemble {

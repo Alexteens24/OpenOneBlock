@@ -4,6 +4,7 @@ jspecify = "1.0.0"
 paper = "1.21.11-R0.1-SNAPSHOT"
 sqliteJdbc = "3.53.2.0"
 shadow = "9.6.0"
+snakeyaml = "2.6"
 spotless = "8.8.0"
 
 [libraries]
@@ -13,6 +14,7 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
+snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 
 [plugins]
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }

@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 99 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 109 automated tests. It produces
 an installable Paper foundation JAR, but deliberately remains in `DEGRADED` mode and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -89,6 +89,10 @@ register `/oneblock` commands or gameplay listeners.
 - [x] Shared void-world specification, validation, creation, and verification adapters.
 - [x] Reproducible Shadow JAR with Paper metadata, SQLite runtime, and artifact-content tests.
 - [x] Paper `JavaPlugin` composition root with a thread-safe, fail-closed runtime lifecycle gate.
+- [x] Versioned commented foundation configuration with safe YAML parsing, typed immutable snapshots,
+  strict unknown-field/cross-field validation, deterministic fingerprints, and atomic publication.
+- [x] Config migration framework with original backups, adjacent-version validation, atomic writes,
+  idempotency, and explicit backup restore.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -183,51 +187,52 @@ Goal: reject unsafe configuration before worlds or gameplay start.
 
 ### Configuration files
 
-- [ ] Create default `config.yml`.
-- [ ] Create `worlds.yml`.
-- [ ] Create `islands.yml`.
-- [ ] Create `roles.yml`.
-- [ ] Create `messages.yml`.
-- [ ] Create directories for `phases/`, `rules/`, `structures/`, `loot/`, `profiles/`, and
+- [x] Create default `config.yml`.
+- [x] Create `worlds.yml`.
+- [x] Create `islands.yml`.
+- [x] Create `roles.yml`.
+- [x] Create `messages.yml`.
+- [x] Create directories for `phases/`, `rules/`, `structures/`, `loot/`, `profiles/`, and
   `integrations/`.
-- [ ] Require `schema-version` in every managed file.
-- [ ] Preserve comments and generate example files where practical.
+- [x] Require `schema-version` in every managed file.
+- [x] Preserve comments and generate example files where practical.
 
 ### Loader and validation
 
-- [ ] Build typed immutable config records.
-- [ ] Reject unknown fields instead of silently ignoring them.
-- [ ] Report file, path, expected type, actual value, and remediation for each error.
-- [ ] Validate all namespaced IDs and cross-file references.
-- [ ] Validate shard grid geometry before world provisioning.
-- [ ] Validate world-name uniqueness and shard/dimension uniqueness.
-- [ ] Validate build heights against target worlds after provisioning.
-- [ ] Validate role inheritance without cycles.
-- [ ] Add a config migration framework.
-- [ ] Write backups before modifying old config files.
-- [ ] Make reload parse and validate into a candidate snapshot before atomic publication.
+- [x] Build typed immutable config records.
+- [x] Reject unknown fields instead of silently ignoring them.
+- [x] Report file, path, expected type, actual value, and remediation for each error.
+- [~] Validate all namespaced IDs and cross-file references; ID syntax and role references are
+  validated, while phase/profile existence waits for their registries.
+- [x] Validate shard grid geometry before world provisioning.
+- [x] Validate world-name uniqueness and shard/dimension uniqueness.
+- [x] Validate build heights against target worlds after provisioning.
+- [x] Validate role inheritance without cycles.
+- [x] Add a config migration framework.
+- [x] Write backups before modifying old config files.
+- [x] Make reload parse and validate into a candidate snapshot before atomic publication.
 
 ### Initial configuration model
 
-- [ ] Database type, file, busy timeout, retry policy, and queue limits.
-- [ ] Shard groups and dimension world names.
-- [ ] Cell size, initial border, maximum border, and safety gap.
-- [ ] World seeds and environments.
-- [ ] Allowed build-height range.
-- [ ] Creation/reset/delete policies.
-- [ ] Starter Magic Block material and regeneration delay.
-- [ ] Default phase/profile IDs.
-- [ ] Message locale and formatting policy.
-- [ ] Debug, audit, and metrics options.
+- [x] Database type, file, busy timeout, retry policy, and queue limits.
+- [x] Shard groups and dimension world names.
+- [x] Cell size, initial border, maximum border, and safety gap.
+- [x] World seeds and environments.
+- [x] Allowed build-height range.
+- [x] Creation/reset/delete policies.
+- [x] Starter Magic Block material and regeneration delay.
+- [x] Default phase/profile IDs.
+- [x] Message locale and formatting policy.
+- [x] Debug, audit, and metrics options.
 
 ### Acceptance tests
 
-- [ ] Default config parses and round-trips.
-- [ ] Invalid geometry fails before server world access.
-- [ ] Duplicate shard/dimension world mapping is rejected.
-- [ ] Unknown and obsolete fields produce validation errors.
-- [ ] Failed reload preserves the active config snapshot.
-- [ ] Config migrations are idempotent and recoverable from backup.
+- [x] Default config parses and round-trips.
+- [x] Invalid geometry fails before server world access.
+- [x] Duplicate shard/dimension world mapping is rejected.
+- [x] Unknown and obsolete fields produce validation errors.
+- [x] Failed reload preserves the active config snapshot.
+- [x] Config migrations are idempotent and recoverable from backup.
 
 ## Milestone 3 — Persisted world projection catalog (`P0`)
 
@@ -1091,7 +1096,7 @@ design change:
    - Shadow JAR;
    - plugin metadata;
    - JAR-content test.
-2. `[ ] feat(config): add typed versioned foundation configuration`
+2. `[x] feat(config): add typed versioned foundation configuration`
    - `config.yml` and `worlds.yml`;
    - strict validation;
    - default resources.

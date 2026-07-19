@@ -1,0 +1,18 @@
+# Role inheritance is validated as an acyclic graph.
+schema-version: 1
+roles:
+  owner:
+    inherits: []
+    permissions:
+      - '*'
+  member:
+    inherits: []
+    permissions:
+      - BLOCK_BREAK
+      - BLOCK_PLACE
+      - CONTAINER_OPEN
+      - ENTITY_INTERACT
+      - USE_BUCKET
+  visitor:
+    inherits: []
+    permissions: []

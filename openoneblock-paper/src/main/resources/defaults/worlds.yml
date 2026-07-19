@@ -1,0 +1,17 @@
+# Shared void-world projections and geometry.
+schema-version: 1
+grid:
+  cell-size: 512
+  initial-border: 64
+  maximum-border: 384
+  safety-gap: 128
+build-height:
+  minimum-y: -64
+  maximum-y-exclusive: 320
+shards:
+  - id: openoneblock:primary
+    dimensions:
+      - id: openoneblock:overworld
+        world-name: openoneblock_overworld
+        environment: NORMAL
+        seed: 0

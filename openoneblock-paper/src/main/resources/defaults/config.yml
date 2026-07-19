@@ -1,0 +1,21 @@
+# OpenOneBlock foundation configuration.
+schema-version: 1
+database:
+  type: sqlite
+  file: data/openoneblock.db
+  busy-timeout-ms: 5000
+  retry:
+    maximum-attempts: 5
+    minimum-backoff-ms: 10
+    maximum-backoff-ms: 100
+  write-queue:
+    capacity: 4096
+    batch-size: 256
+executors:
+  sql-threads: 2
+  computation-threads: 2
+  queue-capacity: 1024
+observability:
+  debug: false
+  audit: true
+  metrics: true

@@ -1,0 +1,7 @@
+# Message presentation defaults. Message keys are added with command milestones.
+schema-version: 1
+locale: en_US
+formatting:
+  mini-message: true
+  legacy-colors: false
+messages: {}

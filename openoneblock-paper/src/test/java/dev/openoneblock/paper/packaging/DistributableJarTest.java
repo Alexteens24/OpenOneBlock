@@ -18,10 +18,18 @@ class DistributableJarTest {
 
     try (JarFile jar = new JarFile(Path.of(artifactPath).toFile())) {
       assertNotNull(jar.getEntry("plugin.yml"));
+      assertNotNull(jar.getEntry("defaults/config.yml"));
+      assertNotNull(jar.getEntry("defaults/worlds.yml"));
+      assertNotNull(jar.getEntry("defaults/islands.yml"));
+      assertNotNull(jar.getEntry("defaults/roles.yml"));
+      assertNotNull(jar.getEntry("defaults/messages.yml"));
       assertNotNull(jar.getEntry("dev/openoneblock/paper/OpenOneBlockPlugin.class"));
       assertNotNull(jar.getEntry("dev/openoneblock/core/island/IslandAggregateSnapshot.class"));
       assertNotNull(jar.getEntry("org/sqlite/JDBC.class"));
+      assertNotNull(jar.getEntry("dev/openoneblock/internal/snakeyaml/Yaml.class"));
       assertFalse(jar.stream().anyMatch(entry -> entry.getName().startsWith("org/bukkit/")));
+      assertFalse(
+          jar.stream().anyMatch(entry -> entry.getName().startsWith("org/yaml/snakeyaml/")));
 
       String metadata =
           new String(
