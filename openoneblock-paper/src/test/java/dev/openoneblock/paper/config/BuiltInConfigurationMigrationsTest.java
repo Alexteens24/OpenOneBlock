@@ -56,7 +56,12 @@ class BuiltInConfigurationMigrationsTest {
     assertEquals(8, loaded.team().maximumSize());
     assertEquals(1000, loaded.roles().get("owner").authority());
     assertEquals(400, loaded.roles().get("builder").authority());
-    assertTrue(loaded.roles().keySet().containsAll(
-        java.util.Set.of("co_owner", "moderator", "member", "trusted", "visitor", "banned")));
+    assertTrue(
+        loaded
+            .roles()
+            .keySet()
+            .containsAll(
+                java.util.Set.of(
+                    "co_owner", "moderator", "member", "trusted", "visitor", "banned")));
   }
 }

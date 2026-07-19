@@ -76,7 +76,9 @@ public final class SqliteIslandInvitationRepository implements IslandInvitationR
                   result.getLong("version"),
                   Instant.parse(result.getString("created_at")),
                   Instant.parse(result.getString("updated_at")),
-                  respondedAt == null ? Optional.empty() : Optional.of(Instant.parse(respondedAt))));
+                  respondedAt == null
+                      ? Optional.empty()
+                      : Optional.of(Instant.parse(respondedAt))));
         }
         return List.copyOf(invitations);
       }

@@ -89,11 +89,7 @@ public final class IslandTeamService {
     LaneSubmission<TeamMutationResult> submission =
         lanes.submit(
             new IslandOperationRequest(
-                islandId,
-                operationId,
-                expectedVersion,
-                submittedAt,
-                IslandOperationClass.MUTATION),
+                islandId, operationId, expectedVersion, submittedAt, IslandOperationClass.MUTATION),
             work::get);
     return switch (submission) {
       case LaneSubmission.Accepted<TeamMutationResult> accepted ->

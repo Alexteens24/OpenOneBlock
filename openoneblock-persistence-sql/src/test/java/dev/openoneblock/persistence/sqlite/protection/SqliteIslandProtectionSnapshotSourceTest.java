@@ -32,8 +32,10 @@ class SqliteIslandProtectionSnapshotSourceTest {
       PlayerId.of(UUID.fromString("dc8dc150-60bf-45f6-9587-5202f7dc23d7"));
   private static final PlayerId INACTIVE_MEMBER =
       PlayerId.of(UUID.fromString("1cd20dae-292d-4eaf-a47b-b6579376b0e9"));
-  private static final PlayerId TRUSTED = PlayerId.of(UUID.fromString("b47472bf-c7ea-4c39-adf3-21517ad6e8f5"));
-  private static final PlayerId BANNED = PlayerId.of(UUID.fromString("a801d451-ddbe-4e66-b78b-4ee998ea6238"));
+  private static final PlayerId TRUSTED =
+      PlayerId.of(UUID.fromString("b47472bf-c7ea-4c39-adf3-21517ad6e8f5"));
+  private static final PlayerId BANNED =
+      PlayerId.of(UUID.fromString("a801d451-ddbe-4e66-b78b-4ee998ea6238"));
   private static final WorldId WORLD =
       WorldId.of(UUID.fromString("749755fb-5364-494f-8a28-7c5c86e01371"));
 

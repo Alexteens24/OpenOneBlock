@@ -36,7 +36,8 @@ public final class IslandRoleRegistry {
     IslandRoleDefinition owner = indexed.get(OWNER);
     if (!owner.wildcard()
         || indexed.values().stream()
-            .anyMatch(role -> !role.roleId().equals(OWNER) && role.authority() >= owner.authority())) {
+            .anyMatch(
+                role -> !role.roleId().equals(OWNER) && role.authority() >= owner.authority())) {
       throw new IllegalArgumentException(
           "owner role must grant wildcard permissions and have uniquely highest authority");
     }

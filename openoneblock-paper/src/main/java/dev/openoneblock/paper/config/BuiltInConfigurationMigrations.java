@@ -1,7 +1,7 @@
 package dev.openoneblock.paper.config;
 
-import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -9,8 +9,7 @@ import java.util.regex.Pattern;
 
 /** Registered append-only migrations for managed OpenOneBlock configuration files. */
 public final class BuiltInConfigurationMigrations {
-  private static final Pattern ROLE_HEADER =
-      Pattern.compile("(?m)^  ([a-z][a-z0-9_-]*):\\R");
+  private static final Pattern ROLE_HEADER = Pattern.compile("(?m)^  ([a-z][a-z0-9_-]*):\\R");
   private static final Map<String, Integer> ROLE_AUTHORITY =
       Map.of(
           "owner", 1000,
@@ -27,8 +26,10 @@ public final class BuiltInConfigurationMigrations {
   public static ConfigurationMigrator migrator() {
     return new ConfigurationMigrator(
         List.of(
-            new ManagedConfigMigration("islands.yml", 1, 2, BuiltInConfigurationMigrations::islandsV2),
-            new ManagedConfigMigration("roles.yml", 1, 2, BuiltInConfigurationMigrations::rolesV2)));
+            new ManagedConfigMigration(
+                "islands.yml", 1, 2, BuiltInConfigurationMigrations::islandsV2),
+            new ManagedConfigMigration(
+                "roles.yml", 1, 2, BuiltInConfigurationMigrations::rolesV2)));
   }
 
   /** Returns current per-file targets without forcing unrelated files to share a schema number. */
@@ -43,10 +44,7 @@ public final class BuiltInConfigurationMigrations {
     if (insertion < 0) {
       throw new IllegalArgumentException("islands.yml schema 1 is missing magic-block section");
     }
-    String team =
-        "team:\n"
-            + "  maximum-size: 8\n"
-            + "  invitation-expiry-seconds: 300\n";
+    String team = "team:\n" + "  maximum-size: 8\n" + "  invitation-expiry-seconds: 300\n";
     return migrated.substring(0, insertion) + team + migrated.substring(insertion);
   }
 
@@ -69,7 +67,8 @@ public final class BuiltInConfigurationMigrations {
       throw new IllegalArgumentException("roles.yml schema 1 contains no role definitions");
     }
     StringBuilder complete = new StringBuilder(output);
-    for (String required : List.of("co_owner", "moderator", "member", "trusted", "visitor", "banned")) {
+    for (String required :
+        List.of("co_owner", "moderator", "member", "trusted", "visitor", "banned")) {
       if (!existingRoles.contains(required)) {
         if (!complete.isEmpty() && complete.charAt(complete.length() - 1) != '\n') {
           complete.append('\n');
@@ -102,10 +101,8 @@ public final class BuiltInConfigurationMigrations {
               + "    authority: 200\n"
               + "    inherits: []\n"
               + "    permissions: [CONTAINER_OPEN, ENTITY_INTERACT, TELEPORT]\n";
-      case "visitor" ->
-          "  visitor:\n    authority: 100\n    inherits: []\n    permissions: []\n";
-      case "banned" ->
-          "  banned:\n    authority: 0\n    inherits: []\n    permissions: []\n";
+      case "visitor" -> "  visitor:\n    authority: 100\n    inherits: []\n    permissions: []\n";
+      case "banned" -> "  banned:\n    authority: 0\n    inherits: []\n    permissions: []\n";
       default -> throw new IllegalArgumentException("unknown built-in role " + role);
     };
   }

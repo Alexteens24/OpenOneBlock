@@ -319,7 +319,8 @@ public final class FoundationConfigurationLoader {
               "fix the typo or register support before using this permission");
         }
       }
-      roles.put(role, new RoleSettings(authority, inheritedRoles, new LinkedHashSet<>(permissions)));
+      roles.put(
+          role, new RoleSettings(authority, inheritedRoles, new LinkedHashSet<>(permissions)));
     }
     for (Map.Entry<String, RoleSettings> entry : roles.entrySet()) {
       for (String inherited : entry.getValue().inherits()) {
@@ -346,20 +347,27 @@ public final class FoundationConfigurationLoader {
     }
     RoleSettings owner = roles.get("owner");
     if (owner != null && !hasWildcard("owner", roles, new LinkedHashSet<>())) {
-      nodes.get("owner").constraint(
-          "permissions",
-          "effective '*' permission",
-          owner.permissions(),
-          "restore owner wildcard permission");
+      nodes
+          .get("owner")
+          .constraint(
+              "permissions",
+              "effective '*' permission",
+              owner.permissions(),
+              "restore owner wildcard permission");
     }
     if (owner != null
         && roles.entrySet().stream()
-            .anyMatch(entry -> !entry.getKey().equals("owner") && entry.getValue().authority() >= owner.authority())) {
-      nodes.get("owner").constraint(
-          "authority",
-          "strictly greater than every other role",
-          owner.authority(),
-          "raise owner authority or lower the conflicting role");
+            .anyMatch(
+                entry ->
+                    !entry.getKey().equals("owner")
+                        && entry.getValue().authority() >= owner.authority())) {
+      nodes
+          .get("owner")
+          .constraint(
+              "authority",
+              "strictly greater than every other role",
+              owner.authority(),
+              "raise owner authority or lower the conflicting role");
     }
     return Map.copyOf(roles);
   }
@@ -437,8 +445,7 @@ public final class FoundationConfigurationLoader {
   }
 
   private static void validateSchema(StrictConfigNode root, String file) {
-    int supportedVersion =
-        file.equals("islands.yml") || file.equals("roles.yml") ? 2 : 1;
+    int supportedVersion = file.equals("islands.yml") || file.equals("roles.yml") ? 2 : 1;
     int schemaVersion = root.integer("schema-version");
     if (schemaVersion != supportedVersion) {
       root.constraint(

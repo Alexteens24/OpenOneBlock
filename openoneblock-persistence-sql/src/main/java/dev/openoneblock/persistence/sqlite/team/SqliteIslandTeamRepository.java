@@ -29,9 +29,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.HexFormat;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -129,8 +129,7 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
     }
   }
 
-  private TeamMutationResult transact(
-      OperationId operationId, String fingerprint, SqlWork work) {
+  private TeamMutationResult transact(OperationId operationId, String fingerprint, SqlWork work) {
     try {
       return transactions.execute(
           connection -> {
@@ -151,7 +150,8 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
 
   private TeamMutationResult invite(Connection connection, IslandInvitationCommand command)
       throws SQLException {
-    IslandRow island = requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
+    IslandRow island =
+        requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
     MembershipRow actor = requireMember(connection, command.islandId(), command.actorPlayerId());
     requirePermission(actor, IslandPermission.INVITE_MEMBER);
     requireAssignableRole(command.proposedRoleId());
@@ -168,7 +168,8 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
     if (activeMemberCount(connection, command.islandId()) >= command.maximumTeamSize()) {
       throw reject("team-size-limit-reached");
     }
-    expirePendingInvitation(connection, command.islandId(), command.invitedPlayerId(), command.requestedAt());
+    expirePendingInvitation(
+        connection, command.islandId(), command.invitedPlayerId(), command.requestedAt());
     try (PreparedStatement statement =
         connection.prepareStatement(
             """
@@ -201,9 +202,10 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
         command.requestedAt());
   }
 
-  private TeamMutationResult respond(
-      Connection connection, IslandInvitationResponseCommand command) throws SQLException {
-    IslandRow island = requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
+  private TeamMutationResult respond(Connection connection, IslandInvitationResponseCommand command)
+      throws SQLException {
+    IslandRow island =
+        requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
     InvitationRow invitation = requirePendingInvitation(connection, command);
     MembershipMutationKind kind;
     if (command.accept()) {
@@ -242,7 +244,8 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
 
   private TeamMutationResult mutate(Connection connection, IslandMembershipCommand command)
       throws SQLException {
-    IslandRow island = requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
+    IslandRow island =
+        requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
     MembershipRow actor = requireMember(connection, command.islandId(), command.actorPlayerId());
     MembershipMutationKind eventKind;
     Optional<NamespacedId> role = command.targetRoleId();
@@ -251,35 +254,47 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
         if (actor.owner()) {
           throw reject("owner-must-transfer-or-delete");
         }
-        deactivateMembership(connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
+        deactivateMembership(
+            connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
         eventKind = MembershipMutationKind.LEFT;
         role = Optional.of(actor.roleId());
       }
       case KICK -> {
         requirePermission(actor, IslandPermission.KICK_MEMBER);
-        MembershipRow subject = requireMember(connection, command.islandId(), command.subjectPlayerId());
+        MembershipRow subject =
+            requireMember(connection, command.islandId(), command.subjectPlayerId());
         if (subject.owner()) {
           throw reject("owner-cannot-be-kicked");
         }
         requireCanManage(actor, subject.roleId());
-        deactivateMembership(connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
+        deactivateMembership(
+            connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
         eventKind = MembershipMutationKind.KICKED;
         role = Optional.of(subject.roleId());
       }
       case BAN -> {
         requirePermission(actor, IslandPermission.KICK_MEMBER);
-        Optional<MembershipRow> subject = membership(connection, command.islandId(), command.subjectPlayerId());
+        Optional<MembershipRow> subject =
+            membership(connection, command.islandId(), command.subjectPlayerId());
         if (subject.filter(MembershipRow::owner).isPresent()) {
           throw reject("owner-cannot-be-banned");
         }
         if (subject.filter(MembershipRow::active).isPresent()) {
           requireCanManage(actor, subject.orElseThrow().roleId());
-          deactivateMembership(connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
+          deactivateMembership(
+              connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
         } else {
           requireCanManage(actor, VISITOR_ROLE);
         }
-        upsertAccess(connection, command.islandId(), command.subjectPlayerId(), "BANNED", null, command.requestedAt());
-        revokePendingInvitation(connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
+        upsertAccess(
+            connection,
+            command.islandId(),
+            command.subjectPlayerId(),
+            "BANNED",
+            null,
+            command.requestedAt());
+        revokePendingInvitation(
+            connection, command.islandId(), command.subjectPlayerId(), command.requestedAt());
         eventKind = MembershipMutationKind.BANNED;
         role = Optional.of(BANNED_ROLE);
       }
@@ -319,7 +334,8 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
       }
       case PROMOTE, DEMOTE -> {
         requirePermission(actor, IslandPermission.CHANGE_SETTINGS);
-        MembershipRow subject = requireMember(connection, command.islandId(), command.subjectPlayerId());
+        MembershipRow subject =
+            requireMember(connection, command.islandId(), command.subjectPlayerId());
         if (subject.owner()) {
           throw reject("owner-role-requires-transfer");
         }
@@ -327,7 +343,12 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
         requireAssignableRole(target);
         requireCanManage(actor, subject.roleId());
         requireCanManage(actor, target);
-        updateMembershipRole(connection, command.islandId(), command.subjectPlayerId(), target, command.requestedAt());
+        updateMembershipRole(
+            connection,
+            command.islandId(),
+            command.subjectPlayerId(),
+            target,
+            command.requestedAt());
         eventKind =
             command.kind() == MembershipCommandKind.PROMOTE
                 ? MembershipMutationKind.PROMOTED
@@ -349,21 +370,24 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
         command.requestedAt());
   }
 
-  private TeamMutationResult transfer(
-      Connection connection, IslandOwnershipTransferCommand command) throws SQLException {
-    IslandRow island = requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
+  private TeamMutationResult transfer(Connection connection, IslandOwnershipTransferCommand command)
+      throws SQLException {
+    IslandRow island =
+        requireActiveVersion(connection, command.islandId(), command.expectedIslandVersion());
     if (!island.ownerId().equals(command.currentOwnerPlayerId())) {
       throw reject("ownership-transfer-requires-current-owner");
     }
-    MembershipRow oldOwner = requireMember(connection, command.islandId(), command.currentOwnerPlayerId());
-    MembershipRow newOwner = requireMember(connection, command.islandId(), command.newOwnerPlayerId());
+    MembershipRow oldOwner =
+        requireMember(connection, command.islandId(), command.currentOwnerPlayerId());
+    MembershipRow newOwner =
+        requireMember(connection, command.islandId(), command.newOwnerPlayerId());
     if (!oldOwner.owner() || newOwner.owner()) {
       throw reject("invalid-owner-membership-projection");
     }
     requireAssignableRole(command.previousOwnerRoleId());
     try (PreparedStatement demote =
-            connection.prepareStatement(
-                """
+        connection.prepareStatement(
+            """
                 UPDATE island_memberships
                 SET role_id = ?, owner = 0, updated_at = ?
                 WHERE island_id = ? AND player_id = ? AND active = 1 AND owner = 1
@@ -375,8 +399,8 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
       requireOne(demote.executeUpdate(), "current owner membership changed concurrently");
     }
     try (PreparedStatement promote =
-            connection.prepareStatement(
-                """
+        connection.prepareStatement(
+            """
                 UPDATE island_memberships
                 SET role_id = ?, owner = 1, updated_at = ?
                 WHERE island_id = ? AND player_id = ? AND active = 1 AND owner = 0
@@ -423,7 +447,8 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
         if (!result.next()) {
           throw reject("unknown-island");
         }
-        IslandLifecycleState state = IslandLifecycleState.valueOf(result.getString("lifecycle_state"));
+        IslandLifecycleState state =
+            IslandLifecycleState.valueOf(result.getString("lifecycle_state"));
         long actualVersion = result.getLong("version");
         if (state != IslandLifecycleState.ACTIVE) {
           throw reject("island-not-active");
@@ -560,7 +585,9 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
       statement.setString(2, command.islandId().toString());
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()
-            || !result.getString("invited_player_id").equals(command.invitedPlayerId().toString())) {
+            || !result
+                .getString("invited_player_id")
+                .equals(command.invitedPlayerId().toString())) {
           throw reject("unknown-invitation");
         }
         if (!result.getString("state").equals("PENDING")) {
@@ -829,62 +856,67 @@ public final class SqliteIslandTeamRepository implements IslandTeamRepository {
   }
 
   private static String fingerprint(IslandInvitationCommand command) {
-    return sha256(String.join(
-        "|",
-        "invite",
-        command.islandId().toString(),
-        command.invitationId().toString(),
-        command.actorPlayerId().toString(),
-        command.invitedPlayerId().toString(),
-        command.proposedRoleId().toString(),
-        Long.toString(command.expectedIslandVersion()),
-        Integer.toString(command.maximumTeamSize()),
-        command.requestedAt().toString(),
-        command.expiresAt().toString()));
+    return sha256(
+        String.join(
+            "|",
+            "invite",
+            command.islandId().toString(),
+            command.invitationId().toString(),
+            command.actorPlayerId().toString(),
+            command.invitedPlayerId().toString(),
+            command.proposedRoleId().toString(),
+            Long.toString(command.expectedIslandVersion()),
+            Integer.toString(command.maximumTeamSize()),
+            command.requestedAt().toString(),
+            command.expiresAt().toString()));
   }
 
   private static String fingerprint(IslandInvitationResponseCommand command) {
-    return sha256(String.join(
-        "|",
-        "respond",
-        command.islandId().toString(),
-        command.invitationId().toString(),
-        command.invitedPlayerId().toString(),
-        Long.toString(command.expectedIslandVersion()),
-        Integer.toString(command.maximumTeamSize()),
-        Boolean.toString(command.accept()),
-        command.respondedAt().toString()));
+    return sha256(
+        String.join(
+            "|",
+            "respond",
+            command.islandId().toString(),
+            command.invitationId().toString(),
+            command.invitedPlayerId().toString(),
+            Long.toString(command.expectedIslandVersion()),
+            Integer.toString(command.maximumTeamSize()),
+            Boolean.toString(command.accept()),
+            command.respondedAt().toString()));
   }
 
   private static String fingerprint(IslandMembershipCommand command) {
-    return sha256(String.join(
-        "|",
-        "membership",
-        command.islandId().toString(),
-        command.kind().name(),
-        command.actorPlayerId().toString(),
-        command.subjectPlayerId().toString(),
-        command.targetRoleId().map(NamespacedId::toString).orElse("-"),
-        Long.toString(command.expectedIslandVersion()),
-        command.requestedAt().toString()));
+    return sha256(
+        String.join(
+            "|",
+            "membership",
+            command.islandId().toString(),
+            command.kind().name(),
+            command.actorPlayerId().toString(),
+            command.subjectPlayerId().toString(),
+            command.targetRoleId().map(NamespacedId::toString).orElse("-"),
+            Long.toString(command.expectedIslandVersion()),
+            command.requestedAt().toString()));
   }
 
   private static String fingerprint(IslandOwnershipTransferCommand command) {
-    return sha256(String.join(
-        "|",
-        "transfer",
-        command.islandId().toString(),
-        command.currentOwnerPlayerId().toString(),
-        command.newOwnerPlayerId().toString(),
-        command.previousOwnerRoleId().toString(),
-        Long.toString(command.expectedIslandVersion()),
-        command.requestedAt().toString()));
+    return sha256(
+        String.join(
+            "|",
+            "transfer",
+            command.islandId().toString(),
+            command.currentOwnerPlayerId().toString(),
+            command.newOwnerPlayerId().toString(),
+            command.previousOwnerRoleId().toString(),
+            Long.toString(command.expectedIslandVersion()),
+            command.requestedAt().toString()));
   }
 
   private static String sha256(String value) {
     try {
       return HexFormat.of()
-          .formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+          .formatHex(
+              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
     } catch (NoSuchAlgorithmException impossible) {
       throw new IllegalStateException("SHA-256 is unavailable", impossible);
     }

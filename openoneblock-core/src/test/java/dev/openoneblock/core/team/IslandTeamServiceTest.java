@@ -74,7 +74,9 @@ class IslandTeamServiceTest {
     firstCompletion.toCompletableFuture().get(5, SECONDS);
     secondCompletion.toCompletableFuture().get(5, SECONDS);
     assertEquals(List.of(first.operationId(), second.operationId()), repositoryStarts);
-    assertEquals(List.of(first.operationId()), published.stream().map(IslandMembershipChangedEvent::operationId).toList());
+    assertEquals(
+        List.of(first.operationId()),
+        published.stream().map(IslandMembershipChangedEvent::operationId).toList());
   }
 
   private static IslandInvitationCommand command(

@@ -50,7 +50,8 @@ class SqliteIslandTeamRepositoryTest {
   private static final NamespacedId MEMBER_ROLE = NamespacedId.of("openoneblock", "member");
   private static final NamespacedId CO_OWNER_ROLE = NamespacedId.of("openoneblock", "co_owner");
   private static final NamespacedId MODERATOR_ROLE = NamespacedId.of("openoneblock", "moderator");
-  private static final PlayerId PLAYER = PlayerId.of(UUID.fromString("37e7d862-b663-4886-b606-2a7361e325e2"));
+  private static final PlayerId PLAYER =
+      PlayerId.of(UUID.fromString("37e7d862-b663-4886-b606-2a7361e325e2"));
 
   @TempDir Path temporaryDirectory;
   private ExecutorService executor;
@@ -83,12 +84,9 @@ class SqliteIslandTeamRepositoryTest {
     assertEquals(
         List.of(invite.invitationId()),
         new SqliteIslandInvitationRepository(factory, executor)
-            .findPendingInvitations(PLAYER, NOW)
-            .toCompletableFuture()
-            .get(10, SECONDS)
-            .stream()
-            .map(dev.openoneblock.api.island.IslandInvitationView::invitationId)
-            .toList());
+            .findPendingInvitations(PLAYER, NOW).toCompletableFuture().get(10, SECONDS).stream()
+                .map(dev.openoneblock.api.island.IslandInvitationView::invitationId)
+                .toList());
     TeamMutationResult replayed = await(repository.invite(invite));
     TeamMutationResult accepted =
         await(
@@ -171,18 +169,19 @@ class SqliteIslandTeamRepositoryTest {
 
     var first =
         repository
-            .respond(
-                response(firstInvite, PLAYER, NOW.plusSeconds(30)))
+            .respond(response(firstInvite, PLAYER, NOW.plusSeconds(30)))
             .toCompletableFuture();
     var second =
         repository
-            .respond(
-                response(secondInvite, PLAYER, NOW.plusSeconds(30)))
+            .respond(response(secondInvite, PLAYER, NOW.plusSeconds(30)))
             .toCompletableFuture();
-    CompletableFuture.allOf(first.handle((value, failure) -> null), second.handle((value, failure) -> null))
+    CompletableFuture.allOf(
+            first.handle((value, failure) -> null), second.handle((value, failure) -> null))
         .get(10, SECONDS);
 
-    assertEquals(1, (first.isCompletedExceptionally() ? 0 : 1) + (second.isCompletedExceptionally() ? 0 : 1));
+    assertEquals(
+        1,
+        (first.isCompletedExceptionally() ? 0 : 1) + (second.isCompletedExceptionally() ? 0 : 1));
     assertEquals(1, activeMembershipCount(PLAYER));
   }
 
@@ -211,37 +210,52 @@ class SqliteIslandTeamRepositoryTest {
     seedMembership(island, PLAYER, MEMBER_ROLE, false);
     assertEquals(
         MembershipMutationKind.PROMOTED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.PROMOTE, 3, CO_OWNER_ROLE)))
+        await(
+                repository.mutate(
+                    mutation(
+                        island, owner, PLAYER, MembershipCommandKind.PROMOTE, 3, CO_OWNER_ROLE)))
             .event()
             .kind());
     assertEquals(
         MembershipMutationKind.DEMOTED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.DEMOTE, 4, MEMBER_ROLE)))
+        await(
+                repository.mutate(
+                    mutation(island, owner, PLAYER, MembershipCommandKind.DEMOTE, 4, MEMBER_ROLE)))
             .event()
             .kind());
     assertEquals(
         MembershipMutationKind.KICKED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.KICK, 5, null)))
+        await(
+                repository.mutate(
+                    mutation(island, owner, PLAYER, MembershipCommandKind.KICK, 5, null)))
             .event()
             .kind());
     assertEquals(
         MembershipMutationKind.BANNED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.BAN, 6, null)))
+        await(
+                repository.mutate(
+                    mutation(island, owner, PLAYER, MembershipCommandKind.BAN, 6, null)))
             .event()
             .kind());
     assertEquals(
         MembershipMutationKind.UNBANNED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.UNBAN, 7, null)))
+        await(
+                repository.mutate(
+                    mutation(island, owner, PLAYER, MembershipCommandKind.UNBAN, 7, null)))
             .event()
             .kind());
     assertEquals(
         MembershipMutationKind.TRUSTED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.TRUST, 8, null)))
+        await(
+                repository.mutate(
+                    mutation(island, owner, PLAYER, MembershipCommandKind.TRUST, 8, null)))
             .event()
             .kind());
     assertEquals(
         MembershipMutationKind.UNTRUSTED,
-        await(repository.mutate(mutation(island, owner, PLAYER, MembershipCommandKind.UNTRUST, 9, null)))
+        await(
+                repository.mutate(
+                    mutation(island, owner, PLAYER, MembershipCommandKind.UNTRUST, 9, null)))
             .event()
             .kind());
     assertEquals(10, islandVersion(island));
@@ -262,13 +276,7 @@ class SqliteIslandTeamRepositoryTest {
             () ->
                 await(
                     repository.mutate(
-                        mutation(
-                            island,
-                            moderator,
-                            PLAYER,
-                            MembershipCommandKind.KICK,
-                            1,
-                            null))));
+                        mutation(island, moderator, PLAYER, MembershipCommandKind.KICK, 1, null))));
     ExecutionException promoteFailure =
         assertThrows(
             ExecutionException.class,
@@ -334,8 +342,8 @@ class SqliteIslandTeamRepositoryTest {
         now);
   }
 
-  private static TeamMutationResult await(java.util.concurrent.CompletionStage<TeamMutationResult> stage)
-      throws Exception {
+  private static TeamMutationResult await(
+      java.util.concurrent.CompletionStage<TeamMutationResult> stage) throws Exception {
     return stage.toCompletableFuture().get(10, SECONDS);
   }
 
@@ -379,8 +387,8 @@ class SqliteIslandTeamRepositoryTest {
     seedMembership(islandId, owner, NamespacedId.of("openoneblock", "owner"), true);
   }
 
-  private void seedMembership(
-      IslandId islandId, PlayerId player, NamespacedId role, boolean owner) throws Exception {
+  private void seedMembership(IslandId islandId, PlayerId player, NamespacedId role, boolean owner)
+      throws Exception {
     try (Connection connection = factory.open();
         PreparedStatement statement =
             connection.prepareStatement(
@@ -416,7 +424,9 @@ class SqliteIslandTeamRepositoryTest {
   }
 
   private PlayerId islandOwner(IslandId islandId) throws Exception {
-    return PlayerId.parse(scalarString("SELECT owner_player_id FROM islands WHERE island_id = ?", islandId.toString()));
+    return PlayerId.parse(
+        scalarString(
+            "SELECT owner_player_id FROM islands WHERE island_id = ?", islandId.toString()));
   }
 
   private boolean isOwnerMembership(IslandId islandId, PlayerId player) throws Exception {

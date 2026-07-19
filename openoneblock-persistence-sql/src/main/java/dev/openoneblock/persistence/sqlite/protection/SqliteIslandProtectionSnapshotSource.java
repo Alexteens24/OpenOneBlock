@@ -227,15 +227,14 @@ public final class SqliteIslandProtectionSnapshotSource implements IslandProtect
       while (result.next()) {
         Builder builder = builders.get(IslandId.parse(result.getString("island_id")));
         if (builder != null) {
-          builder.addMembership(
-              PlayerId.parse(result.getString("player_id")), accessRole(result));
+          builder.addMembership(PlayerId.parse(result.getString("player_id")), accessRole(result));
         }
       }
     }
   }
 
-  private static void loadAccessRecords(
-      Connection connection, IslandId islandId, Builder builder) throws SQLException {
+  private static void loadAccessRecords(Connection connection, IslandId islandId, Builder builder)
+      throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
             """
@@ -246,8 +245,7 @@ public final class SqliteIslandProtectionSnapshotSource implements IslandProtect
       statement.setString(1, islandId.toString());
       try (ResultSet result = statement.executeQuery()) {
         while (result.next()) {
-          builder.addMembership(
-              PlayerId.parse(result.getString("player_id")), accessRole(result));
+          builder.addMembership(PlayerId.parse(result.getString("player_id")), accessRole(result));
         }
       }
     }

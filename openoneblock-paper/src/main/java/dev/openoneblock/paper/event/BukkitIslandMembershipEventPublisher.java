@@ -8,8 +8,7 @@ import java.util.concurrent.CompletionStage;
 import org.bukkit.Server;
 
 /** Delivers committed team events through Bukkit's supported global scheduler. */
-public final class BukkitIslandMembershipEventPublisher
-    implements IslandMembershipEventPublisher {
+public final class BukkitIslandMembershipEventPublisher implements IslandMembershipEventPublisher {
   private final Server server;
   private final PlatformTaskScheduler scheduler;
 

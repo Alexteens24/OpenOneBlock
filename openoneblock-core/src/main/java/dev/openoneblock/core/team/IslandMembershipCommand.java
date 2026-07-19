@@ -30,7 +30,8 @@ public record IslandMembershipCommand(
     if (expectedIslandVersion < 0) {
       throw new IllegalArgumentException("expectedIslandVersion must be non-negative");
     }
-    boolean roleRequired = kind == MembershipCommandKind.PROMOTE || kind == MembershipCommandKind.DEMOTE;
+    boolean roleRequired =
+        kind == MembershipCommandKind.PROMOTE || kind == MembershipCommandKind.DEMOTE;
     if (roleRequired != targetRoleId.isPresent()) {
       throw new IllegalArgumentException("target role is required only for promote/demote");
     }
