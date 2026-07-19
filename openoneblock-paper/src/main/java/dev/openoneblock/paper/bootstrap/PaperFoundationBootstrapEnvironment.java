@@ -49,6 +49,7 @@ import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProtectionPublisher;
 import dev.openoneblock.persistence.sqlite.protection.SqliteIslandProtectionSnapshotSource;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
+import dev.openoneblock.persistence.sqlite.team.SqliteIslandMemberRepository;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldProjectionCatalog;
 import dev.openoneblock.protection.InMemoryIslandProtectionIndex;
@@ -231,6 +232,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   new PaperIslandOwnerTeleporter(plugin, plugin.getServer());
               SqliteIslandQueryRepository queryRepository =
                   new SqliteIslandQueryRepository(activeFactory, activeExecutors.database());
+              SqliteIslandMemberRepository memberRepository =
+                  new SqliteIslandMemberRepository(activeFactory, activeExecutors.database());
               IslandHomeService homeService =
                   new IslandHomeService(
                       queryRepository,
@@ -297,6 +300,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       protectionIndex,
                       protectionEngine,
                       islandRoles,
+                      memberRepository,
                       repository,
                       lanes,
                       runtimeManager,

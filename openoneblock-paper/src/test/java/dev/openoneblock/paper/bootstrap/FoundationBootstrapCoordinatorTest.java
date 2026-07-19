@@ -344,6 +344,7 @@ class FoundationBootstrapCoordinatorTest {
         protection,
         new dev.openoneblock.paper.config.ProtectionConfigurationCompiler()
             .compileIslandRoles(configuration.roles()),
+        islandId -> CompletableFuture.completedFuture(List.of()),
         repository,
         lanes,
         runtimes,
