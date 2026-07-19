@@ -7,6 +7,7 @@ import dev.openoneblock.core.grid.CoordinateRange;
 import dev.openoneblock.core.grid.GridGeometry;
 import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
+import dev.openoneblock.core.island.IslandHomeService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldEnvironment;
 import dev.openoneblock.core.locator.WorldProjectionDefinition;
@@ -22,6 +23,7 @@ import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.ProvisionedWorldHeight;
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
 import dev.openoneblock.paper.event.BukkitIslandCreatedEventPublisher;
+import dev.openoneblock.paper.island.PaperIslandDestinationPreparer;
 import dev.openoneblock.paper.island.PaperIslandOwnerTeleporter;
 import dev.openoneblock.paper.runtime.PaperIslandChunkTicketController;
 import dev.openoneblock.paper.world.BukkitVoidWorldFactory;
@@ -33,6 +35,7 @@ import dev.openoneblock.paper.world.SharedWorldSpec;
 import dev.openoneblock.paper.world.UnavailableIslandStructurePlacement;
 import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandCreationRepository;
+import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
@@ -187,6 +190,19 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   NamespacedId.of(
                       "minecraft",
                       configuration.magicBlock().starterMaterial().toLowerCase(Locale.ROOT));
+              PaperIslandOwnerTeleporter playerTeleporter =
+                  new PaperIslandOwnerTeleporter(plugin, plugin.getServer());
+              SqliteIslandQueryRepository queryRepository =
+                  new SqliteIslandQueryRepository(activeFactory, activeExecutors.database());
+              IslandHomeService homeService =
+                  new IslandHomeService(
+                      queryRepository,
+                      activeWorlds,
+                      geometryByShard,
+                      minimumY,
+                      maximumYExclusive,
+                      new PaperIslandDestinationPreparer(plugin.getServer(), scheduler),
+                      playerTeleporter);
               CreateIslandService creationService =
                   new CreateIslandService(
                       repository,
@@ -200,7 +216,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       maximumYExclusive,
                       preparationCoordinator,
                       new PaperIslandCleanup(plugin, plugin.getServer(), scheduler),
-                      new PaperIslandOwnerTeleporter(plugin, plugin.getServer()),
+                      playerTeleporter,
                       new BukkitIslandCreatedEventPublisher(plugin.getServer(), scheduler),
                       clock);
               FoundationRuntime recovered =
@@ -213,7 +229,9 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       runtimeManager,
                       effectJournal,
                       preparationCoordinator,
-                      creationService);
+                      creationService,
+                      queryRepository,
+                      homeService);
               chunkTickets = ticketController;
               runtime = recovered;
               return repository

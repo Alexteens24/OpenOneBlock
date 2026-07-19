@@ -2,6 +2,8 @@ package dev.openoneblock.paper.command;
 
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.core.island.CreateIslandResult;
+import dev.openoneblock.core.island.IslandHomeResult;
+import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -16,7 +18,7 @@ import org.bukkit.entity.Player;
 
 /** Paper lifecycle command handler for `/oneblock` and `/ob`. */
 public final class OpenOneBlockCommand implements BasicCommand {
-  private static final List<String> ROOT_SUGGESTIONS = List.of("create", "help");
+  private static final List<String> ROOT_SUGGESTIONS = List.of("create", "home", "info", "help");
 
   private final PluginRuntimeLifecycle lifecycle;
   private final IslandCommandGateway islands;
@@ -56,6 +58,8 @@ public final class OpenOneBlockCommand implements BasicCommand {
     switch (subcommand) {
       case "help" -> help(sender);
       case "create" -> create(sender);
+      case "home" -> home(sender);
+      case "info" -> info(sender);
       default -> messages.send(sender, "command.unknown");
     }
   }
@@ -127,6 +131,75 @@ public final class OpenOneBlockCommand implements BasicCommand {
             });
   }
 
+  private void home(CommandSender sender) {
+    Player player = requirePlayer(sender);
+    if (player == null || !requirePermission(player, OpenOneBlockPermissions.HOME)) {
+      return;
+    }
+    if (!requireReady(player)) {
+      return;
+    }
+    MutationSubmission<IslandHomeResult> submission =
+        islands.home(PlayerId.of(player.getUniqueId()));
+    messages.send(player, "command.home.started", Map.of("operation_id", submission.operationId()));
+    submission
+        .completion()
+        .whenComplete(
+            (result, failure) -> {
+              if (failure != null) {
+                respondHomeFailure(player, submission.operationId(), failure);
+                return;
+              }
+              messages.send(
+                  player,
+                  "command.home.success",
+                  Map.of(
+                      "island_id", result.islandId(),
+                      "operation_id", result.operationId()));
+            });
+  }
+
+  private void info(CommandSender sender) {
+    Player player = requirePlayer(sender);
+    if (player == null || !requirePermission(player, OpenOneBlockPermissions.INFO)) {
+      return;
+    }
+    if (!requireReady(player)) {
+      return;
+    }
+    islands
+        .info(PlayerId.of(player.getUniqueId()))
+        .whenComplete(
+            (info, failure) -> {
+              if (failure != null) {
+                CommandFailure mapped = failures.mapInfo(failure);
+                messages.send(player, mapped.messageKey(), mapped.placeholders());
+                if (mapped.log()) {
+                  logger.log(Level.SEVERE, "OpenOneBlock island info query failed", failure);
+                }
+                return;
+              }
+              sendInfo(player, info);
+            });
+  }
+
+  private void sendInfo(Player player, IslandInfoSnapshot info) {
+    messages.send(
+        player,
+        "command.info",
+        Map.ofEntries(
+            Map.entry("island_id", info.islandId()),
+            Map.entry("owner_id", info.ownerId()),
+            Map.entry("role_id", info.requesterRoleId()),
+            Map.entry("phase_id", info.phaseId()),
+            Map.entry("current_border", info.currentBorderSize()),
+            Map.entry("maximum_border", info.maximumBorderSize()),
+            Map.entry("total_breaks", info.totalBreaks()),
+            Map.entry("sequence", info.magicBlockSequence()),
+            Map.entry("members", info.activeMemberCount()),
+            Map.entry("version", info.islandVersion())));
+  }
+
   private void respondFailure(
       CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
     CommandFailure mapped = failures.map(failure, operationId);
@@ -137,7 +210,45 @@ public final class OpenOneBlockCommand implements BasicCommand {
     }
   }
 
+  private void respondHomeFailure(
+      CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
+    CommandFailure mapped = failures.mapHome(failure, operationId);
+    messages.send(sender, mapped.messageKey(), mapped.placeholders());
+    if (mapped.log()) {
+      logger.log(Level.SEVERE, "OpenOneBlock home operation " + operationId + " failed", failure);
+    }
+  }
+
+  private Player requirePlayer(CommandSender sender) {
+    if (sender instanceof Player player) {
+      return player;
+    }
+    messages.send(sender, "command.player-only");
+    return null;
+  }
+
+  private boolean requirePermission(Player player, String permission) {
+    if (player.hasPermission(permission)) {
+      return true;
+    }
+    messages.send(player, "command.no-permission");
+    return false;
+  }
+
+  private boolean requireReady(Player player) {
+    if (lifecycle.isReady()) {
+      return true;
+    }
+    messages.send(player, "command.not-ready");
+    return false;
+  }
+
   private static String permissionFor(String command) {
-    return command.equals("create") ? OpenOneBlockPermissions.CREATE : OpenOneBlockPermissions.HELP;
+    return switch (command) {
+      case "create" -> OpenOneBlockPermissions.CREATE;
+      case "home" -> OpenOneBlockPermissions.HOME;
+      case "info" -> OpenOneBlockPermissions.INFO;
+      default -> OpenOneBlockPermissions.HELP;
+    };
   }
 }

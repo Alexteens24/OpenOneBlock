@@ -214,6 +214,29 @@ class FoundationBootstrapCoordinatorTest {
             (ownerId, destination, operationId) -> CompletableFuture.completedFuture(null),
             event -> CompletableFuture.completedFuture(null),
             java.time.Clock.systemUTC());
+    dev.openoneblock.core.island.IslandQueryRepository queries =
+        new dev.openoneblock.core.island.IslandQueryRepository() {
+          @Override
+          public CompletionStage<Optional<dev.openoneblock.core.island.IslandHomeSnapshot>>
+              findActiveHome(PlayerId playerId) {
+            return CompletableFuture.completedFuture(Optional.empty());
+          }
+
+          @Override
+          public CompletionStage<Optional<dev.openoneblock.core.island.IslandInfoSnapshot>>
+              findActiveInfo(PlayerId playerId) {
+            return CompletableFuture.completedFuture(Optional.empty());
+          }
+        };
+    dev.openoneblock.core.island.IslandHomeService home =
+        new dev.openoneblock.core.island.IslandHomeService(
+            queries,
+            worlds,
+            ignored -> geometry,
+            minimumY,
+            maximumY,
+            (destination, operationId) -> CompletableFuture.completedFuture(null),
+            (playerId, destination, operationId) -> CompletableFuture.completedFuture(null));
     return new FoundationRuntime(
         configuration,
         worlds,
@@ -223,7 +246,9 @@ class FoundationBootstrapCoordinatorTest {
         runtimes,
         worldEffects,
         preparation,
-        creation);
+        creation,
+        queries,
+        home);
   }
 
   private static WorldEffectJournal unavailableWorldEffects() {

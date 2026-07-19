@@ -28,3 +28,9 @@ permissions:
   openoneblock.command.help:
     description: Allows viewing OpenOneBlock command help.
     default: true
+  openoneblock.command.home:
+    description: Allows teleporting to an active OpenOneBlock island home.
+    default: true
+  openoneblock.command.info:
+    description: Allows viewing the caller's OpenOneBlock island summary.
+    default: true

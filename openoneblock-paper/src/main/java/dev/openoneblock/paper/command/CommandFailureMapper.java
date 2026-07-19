@@ -5,6 +5,8 @@ import dev.openoneblock.core.island.CreateIslandRejectedException;
 import dev.openoneblock.core.island.IslandCreationFailedException;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandPostActivationDeliveryException;
+import dev.openoneblock.core.island.PlayerIslandNotFoundException;
+import dev.openoneblock.core.island.UnsafeIslandHomeException;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -44,6 +46,44 @@ public final class CommandFailureMapper {
           "command.create.failed", Map.of("operation_id", operationId), false);
     }
     return new CommandFailure("command.internal-error", Map.of("operation_id", operationId), true);
+  }
+
+  /**
+   * Maps one home-teleport failure.
+   *
+   * @param failure asynchronous failure
+   * @param operationId trace identity
+   * @return stable response mapping
+   */
+  public CommandFailure mapHome(Throwable failure, OperationId operationId) {
+    Throwable cause = unwrap(failure);
+    if (cause instanceof CommandRuntimeUnavailableException) {
+      return new CommandFailure("command.not-ready", Map.of(), false);
+    }
+    if (cause instanceof PlayerIslandNotFoundException) {
+      return new CommandFailure("command.no-island", Map.of(), false);
+    }
+    if (cause instanceof UnsafeIslandHomeException) {
+      return new CommandFailure("command.home.unsafe", Map.of("operation_id", operationId), true);
+    }
+    return new CommandFailure("command.home.failed", Map.of("operation_id", operationId), true);
+  }
+
+  /**
+   * Maps one island-info query failure.
+   *
+   * @param failure asynchronous failure
+   * @return stable response mapping
+   */
+  public CommandFailure mapInfo(Throwable failure) {
+    Throwable cause = unwrap(failure);
+    if (cause instanceof CommandRuntimeUnavailableException) {
+      return new CommandFailure("command.not-ready", Map.of(), false);
+    }
+    if (cause instanceof PlayerIslandNotFoundException) {
+      return new CommandFailure("command.no-island", Map.of(), false);
+    }
+    return new CommandFailure("command.internal-error", Map.of(), true);
   }
 
   private static Throwable unwrap(Throwable failure) {

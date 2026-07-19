@@ -11,6 +11,8 @@ import dev.openoneblock.api.id.ShardGroupId;
 import dev.openoneblock.api.island.IslandLifecycleState;
 import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandHomeResult;
+import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.slot.AllocatedSlot;
 import dev.openoneblock.core.slot.SlotId;
@@ -142,6 +144,71 @@ class OpenOneBlockCommandTest {
     assertEquals(List.of("command.help", "command.unknown"), messages.keys());
   }
 
+  @Test
+  void homeIsNonBlockingAndReportsOperationOutcome() {
+    CompletableFuture<IslandHomeResult> pending = new CompletableFuture<>();
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public MutationSubmission<IslandHomeResult> home(PlayerId player) {
+            return new MutationSubmission<>(OPERATION_ID, pending);
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+
+    command.execute(source(player(allPlayerPermissions())), new String[] {"home"});
+
+    assertEquals(List.of("command.home.started"), messages.keys());
+    assertFalse(pending.isDone());
+    pending.complete(new IslandHomeResult(ISLAND_ID, OPERATION_ID, 9));
+    assertEquals(List.of("command.home.started", "command.home.success"), messages.keys());
+  }
+
+  @Test
+  void infoRendersOnlyAfterAsynchronousQueryCompletes() {
+    CompletableFuture<IslandInfoSnapshot> pending = new CompletableFuture<>();
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<IslandInfoSnapshot> info(PlayerId player) {
+            return pending;
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+
+    command.execute(source(player(allPlayerPermissions())), new String[] {"info"});
+
+    assertEquals(List.of(), messages.keys());
+    pending.complete(
+        new IslandInfoSnapshot(
+            ISLAND_ID,
+            PlayerId.of(PLAYER_UUID),
+            dev.openoneblock.api.id.NamespacedId.parse("openoneblock:owner"),
+            ShardGroupId.parse("openoneblock:primary"),
+            new GridPosition(0, 0),
+            64,
+            384,
+            dev.openoneblock.api.id.NamespacedId.parse("openoneblock:plains"),
+            0,
+            0,
+            1,
+            9));
+    assertEquals(List.of("command.info"), messages.keys());
+    assertEquals(ISLAND_ID, messages.entries().getFirst().placeholders().get("island_id"));
+  }
+
   private static MutationSubmission<CreateIslandResult> completedSubmission(
       CreateIslandResult result) {
     return new MutationSubmission<>(OPERATION_ID, CompletableFuture.completedFuture(result));
@@ -200,7 +267,9 @@ class OpenOneBlockCommandTest {
     return Set.of(
         OpenOneBlockPermissions.COMMAND,
         OpenOneBlockPermissions.CREATE,
-        OpenOneBlockPermissions.HELP);
+        OpenOneBlockPermissions.HELP,
+        OpenOneBlockPermissions.HOME,
+        OpenOneBlockPermissions.INFO);
   }
 
   private static Player player(Set<String> permissions) {

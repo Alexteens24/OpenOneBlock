@@ -100,6 +100,19 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(1, context.delivery().teleports.get());
     assertEquals(1, context.delivery().events.size());
     assertEquals(false, context.delivery().events.getFirst().recovered());
+    SqliteIslandQueryRepository queries =
+        new SqliteIslandQueryRepository(context.factory(), Runnable::run);
+    var home = await(queries.findActiveHome(command.ownerId())).orElseThrow();
+    var info = await(queries.findActiveInfo(command.ownerId())).orElseThrow();
+    assertEquals(created.island().islandId(), home.islandId());
+    assertEquals(WORLD, home.destination().worldId());
+    assertEquals(created.island().version(), home.islandVersion());
+    assertEquals(created.island().islandId(), info.islandId());
+    assertEquals(NamespacedId.parse("openoneblock:plains"), info.phaseId());
+    assertEquals(NamespacedId.parse("openoneblock:owner"), info.requesterRoleId());
+    assertEquals(0, info.totalBreaks());
+    assertEquals(0, info.magicBlockSequence());
+    assertEquals(1, info.activeMemberCount());
   }
 
   @Test

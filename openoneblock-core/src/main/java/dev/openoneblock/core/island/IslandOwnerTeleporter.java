@@ -7,7 +7,7 @@ import java.util.concurrent.CompletionStage;
 
 /** Interactive post-activation owner teleport port. */
 @FunctionalInterface
-public interface IslandOwnerTeleporter {
+public interface IslandOwnerTeleporter extends IslandPlayerTeleporter {
   /**
    * Teleports the online owner to the verified committed primary spawn.
    *

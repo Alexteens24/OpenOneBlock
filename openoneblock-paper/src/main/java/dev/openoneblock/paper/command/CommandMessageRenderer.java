@@ -52,7 +52,7 @@ public final class CommandMessageRenderer {
 
   private static Map<String, String> fallbacks() {
     Map<String, String> messages = new LinkedHashMap<>();
-    messages.put("command.help", "OpenOneBlock: /ob create");
+    messages.put("command.help", "OpenOneBlock: /ob create | home | info");
     messages.put("command.unknown", "Unknown subcommand. Use /ob help.");
     messages.put("command.player-only", "This command can only be used by a player.");
     messages.put("command.no-permission", "You do not have permission to do that.");
@@ -67,6 +67,17 @@ public final class CommandMessageRenderer {
         "command.create.delivery-failed",
         "Island {island_id} is active, but the final teleport/message delivery failed.");
     messages.put("command.internal-error", "OpenOneBlock could not complete that operation.");
+    messages.put("command.no-island", "You do not belong to an active island.");
+    messages.put("command.home.started", "Preparing island home... Operation: {operation_id}");
+    messages.put("command.home.success", "Teleported to island {island_id}.");
+    messages.put(
+        "command.home.unsafe", "Your stored island home is unsafe; ask an admin to repair it.");
+    messages.put("command.home.failed", "Could not teleport home. Operation: {operation_id}");
+    messages.put(
+        "command.info",
+        "Island {island_id} | Owner {owner_id} | Role {role_id} | Phase {phase_id} | "
+            + "Border {current_border}/{maximum_border} | Breaks {total_breaks} | "
+            + "Sequence {sequence} | Members {members} | Version {version}");
     return Map.copyOf(messages);
   }
 }

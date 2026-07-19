@@ -5,7 +5,7 @@ formatting:
   mini-message: true
   legacy-colors: false
 messages:
-  command.help: "OpenOneBlock: /ob create"
+  command.help: "OpenOneBlock: /ob create | home | info"
   command.unknown: "Unknown subcommand. Use /ob help."
   command.player-only: "This command can only be used by a player."
   command.no-permission: "You do not have permission to do that."
@@ -18,3 +18,12 @@ messages:
   command.create.delivery-failed: >-
     Island {island_id} is active, but the final teleport/message delivery failed.
   command.internal-error: "OpenOneBlock could not complete that operation."
+  command.no-island: "You do not belong to an active island."
+  command.home.started: "Preparing island home... Operation: {operation_id}"
+  command.home.success: "Teleported to island {island_id}."
+  command.home.unsafe: "Your stored island home is unsafe; ask an admin to repair it."
+  command.home.failed: "Could not teleport home. Operation: {operation_id}"
+  command.info: >-
+    Island {island_id} | Owner {owner_id} | Role {role_id} | Phase {phase_id} |
+    Border {current_border}/{maximum_border} | Breaks {total_breaks} |
+    Sequence {sequence} | Members {members} | Version {version}

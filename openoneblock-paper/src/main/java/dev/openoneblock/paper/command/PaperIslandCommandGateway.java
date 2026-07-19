@@ -6,6 +6,9 @@ import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.api.id.WorldId;
 import dev.openoneblock.core.island.CreateIslandCommand;
 import dev.openoneblock.core.island.CreateIslandResult;
+import dev.openoneblock.core.island.IslandHomeResult;
+import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.PlayerIslandNotFoundException;
 import dev.openoneblock.paper.bootstrap.FoundationRuntime;
 import java.util.Objects;
 import java.util.Optional;
@@ -52,6 +55,45 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
       return new MutationSubmission<>(
           operationId, java.util.concurrent.CompletableFuture.failedFuture(failure));
     }
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public MutationSubmission<IslandHomeResult> home(PlayerId player) {
+    Objects.requireNonNull(player, "player");
+    OperationId operationId = operationIds.get();
+    Optional<FoundationRuntime> active = runtime.get();
+    if (active.isEmpty()) {
+      return new MutationSubmission<>(
+          operationId,
+          java.util.concurrent.CompletableFuture.failedFuture(
+              new CommandRuntimeUnavailableException("not-ready")));
+    }
+    return new MutationSubmission<>(
+        operationId, active.orElseThrow().islandHome().home(player, operationId));
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public java.util.concurrent.CompletionStage<IslandInfoSnapshot> info(PlayerId player) {
+    Objects.requireNonNull(player, "player");
+    Optional<FoundationRuntime> active = runtime.get();
+    if (active.isEmpty()) {
+      return java.util.concurrent.CompletableFuture.failedFuture(
+          new CommandRuntimeUnavailableException("not-ready"));
+    }
+    return active
+        .orElseThrow()
+        .islandQueries()
+        .findActiveInfo(player)
+        .thenCompose(
+            info ->
+                info.<java.util.concurrent.CompletionStage<IslandInfoSnapshot>>map(
+                        java.util.concurrent.CompletableFuture::completedFuture)
+                    .orElseGet(
+                        () ->
+                            java.util.concurrent.CompletableFuture.failedFuture(
+                                new PlayerIslandNotFoundException(player))));
   }
 
   private MutationSubmission<CreateIslandResult> create(PlayerId owner, OperationId operationId) {

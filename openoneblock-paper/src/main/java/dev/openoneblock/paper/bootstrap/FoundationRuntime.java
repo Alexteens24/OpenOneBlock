@@ -3,6 +3,8 @@ package dev.openoneblock.paper.bootstrap;
 import dev.openoneblock.core.execution.IslandExecutionLanes;
 import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
+import dev.openoneblock.core.island.IslandHomeService;
+import dev.openoneblock.core.island.IslandQueryRepository;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
@@ -23,6 +25,8 @@ import java.util.Objects;
  * @param worldEffects authoritative durable world-effect evidence
  * @param worldPreparation durable-before-dispatch preparation coordinator
  * @param islandCreation complete idempotent island creation application service
+ * @param islandQueries asynchronous immutable player command projections
+ * @param islandHome verified safe-home application service
  */
 public record FoundationRuntime(
     FoundationConfigurationSnapshot configuration,
@@ -33,7 +37,9 @@ public record FoundationRuntime(
     IslandRuntimeManager islandRuntimes,
     WorldEffectJournal worldEffects,
     WorldPreparationCoordinator worldPreparation,
-    CreateIslandService islandCreation) {
+    CreateIslandService islandCreation,
+    IslandQueryRepository islandQueries,
+    IslandHomeService islandHome) {
   /** Validates the complete recovered service graph. */
   public FoundationRuntime {
     Objects.requireNonNull(configuration, "configuration");
@@ -45,5 +51,7 @@ public record FoundationRuntime(
     Objects.requireNonNull(worldEffects, "worldEffects");
     Objects.requireNonNull(worldPreparation, "worldPreparation");
     Objects.requireNonNull(islandCreation, "islandCreation");
+    Objects.requireNonNull(islandQueries, "islandQueries");
+    Objects.requireNonNull(islandHome, "islandHome");
   }
 }
