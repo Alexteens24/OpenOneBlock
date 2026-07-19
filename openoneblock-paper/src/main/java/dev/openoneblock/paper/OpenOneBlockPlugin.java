@@ -1,12 +1,21 @@
 package dev.openoneblock.paper;
 
+import dev.openoneblock.paper.bootstrap.FoundationBootstrapCoordinator;
+import dev.openoneblock.paper.bootstrap.FoundationRuntime;
+import dev.openoneblock.paper.bootstrap.PaperFoundationBootstrapEnvironment;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeState;
+import dev.openoneblock.paper.scheduler.PaperPlatformTaskScheduler;
+import java.time.Duration;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /** Paper entry point and composition root for OpenOneBlock. */
 public final class OpenOneBlockPlugin extends JavaPlugin {
   private final PluginRuntimeLifecycle lifecycle = new PluginRuntimeLifecycle();
+  private volatile FoundationBootstrapCoordinator bootstrap;
 
   /** Creates the Paper composition root. */
   public OpenOneBlockPlugin() {}
@@ -14,25 +23,52 @@ public final class OpenOneBlockPlugin extends JavaPlugin {
   @Override
   public void onEnable() {
     lifecycle.transitionTo(PluginRuntimeState.BOOTSTRAPPING);
-
-    // Infrastructure is deliberately gated until the configuration and recovery milestones
-    // are installed. Loading this foundation artifact must not expose incomplete gameplay.
-    lifecycle.transitionTo(PluginRuntimeState.DEGRADED);
-    getLogger()
-        .warning(
-            "OpenOneBlock loaded in DEGRADED foundation mode; gameplay and commands are disabled.");
+    PaperPlatformTaskScheduler scheduler = new PaperPlatformTaskScheduler(this, getServer());
+    FoundationBootstrapCoordinator created =
+        new FoundationBootstrapCoordinator(
+            lifecycle, new PaperFoundationBootstrapEnvironment(this, scheduler));
+    bootstrap = created;
+    created
+        .start()
+        .whenComplete(
+            (runtime, failure) -> {
+              if (failure == null) {
+                getLogger()
+                    .info(
+                        "OpenOneBlock foundation is READY with "
+                            + runtime.worldProjections().size()
+                            + " verified world projection(s).");
+              } else {
+                getLogger().log(Level.SEVERE, "OpenOneBlock startup failed closed", failure);
+              }
+            });
   }
 
   @Override
   public void onDisable() {
-    PluginRuntimeState current = lifecycle.state();
-    if (current == PluginRuntimeState.STOPPED) {
-      return;
+    FoundationBootstrapCoordinator activeBootstrap = bootstrap;
+    if (activeBootstrap != null) {
+      try {
+        activeBootstrap
+            .shutdown(Duration.ofSeconds(10))
+            .toCompletableFuture()
+            .get(15, TimeUnit.SECONDS);
+      } catch (Exception exception) {
+        getLogger().log(Level.SEVERE, "OpenOneBlock shutdown did not complete cleanly", exception);
+      }
+    } else {
+      PluginRuntimeState current = lifecycle.state();
+      if (current != PluginRuntimeState.STOPPED && current != PluginRuntimeState.SHUTTING_DOWN) {
+        lifecycle.transitionTo(PluginRuntimeState.SHUTTING_DOWN);
+      }
+      if (lifecycle.state() == PluginRuntimeState.SHUTTING_DOWN) {
+        lifecycle.transitionTo(PluginRuntimeState.STOPPED);
+      }
     }
-    if (current != PluginRuntimeState.SHUTTING_DOWN) {
-      lifecycle.transitionTo(PluginRuntimeState.SHUTTING_DOWN);
-    }
-    lifecycle.transitionTo(PluginRuntimeState.STOPPED);
+    getServer().getGlobalRegionScheduler().cancelTasks(this);
+    getServer().getAsyncScheduler().cancelTasks(this);
+    getServer().getScheduler().cancelTasks(this);
+    bootstrap = null;
   }
 
   /**
@@ -42,5 +78,15 @@ public final class OpenOneBlockPlugin extends JavaPlugin {
    */
   public PluginRuntimeLifecycle runtimeLifecycle() {
     return lifecycle;
+  }
+
+  /**
+   * Returns the service graph only when startup has reached {@link PluginRuntimeState#READY}.
+   *
+   * @return published foundation runtime
+   */
+  public Optional<FoundationRuntime> foundationRuntime() {
+    FoundationBootstrapCoordinator activeBootstrap = bootstrap;
+    return activeBootstrap == null ? Optional.empty() : activeBootstrap.runtime();
   }
 }

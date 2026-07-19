@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 116 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 124 automated tests. It produces
 an installable Paper foundation JAR, but deliberately remains in `DEGRADED` mode and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -96,16 +96,19 @@ register `/oneblock` commands or gameplay listeners.
 - [x] SQLite world projection catalog with authoritative UUID/environment/config identity, complete
   restart drift diagnostics, verified runtime registry construction, and idempotent optimistic admin
   adoption.
+- [x] Asynchronous Paper startup composition that installs and validates config, creates bounded
+  executors, migrates SQLite, provisions worlds on the global scheduler, verifies persisted identity,
+  rebuilds slot projections, runs a fail-closed recovery gate, and atomically reaches `READY`.
+- [x] Bounded graceful shutdown with lane draining, scheduler cancellation, executor teardown, and
+  tested startup rollback.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
 ### Partially implemented areas
 
-- [~] Shared worlds: creation adapters exist, but there is no plugin bootstrap to provision them.
-- [~] World projection persistence: registration and drift checks exist, but startup composition does
-  not yet invoke them immediately after provisioning.
 - [~] Island creation: database stages exist, but no application coordinator performs world work.
-- [~] Crash recovery: pending creation reads exist, but no startup recovery decision engine exists.
+- [~] Crash recovery: startup detects unfinished creations and fails closed, but the decision engine
+  does not yet resume, roll back, or mark them `BROKEN`.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
 - [~] Island aggregate: persisted creation header exists; members, spawn points, progression, Magic
@@ -163,28 +166,30 @@ shut down safely without exposing gameplay early.
   - `STOPPED`.
 - [~] Reject commands and gameplay events until state is `READY`; the lifecycle gate is implemented,
   while command and listener adapters do not exist yet.
-- [ ] Create bounded executors for SQL and non-Minecraft computation.
-- [ ] Initialize schema migrations before repositories.
-- [ ] Provision configured worlds through the global scheduler.
-- [ ] Load slot locator snapshot before listeners.
-- [ ] Run crash recovery before enabling commands or gameplay.
-- [ ] Register listeners and commands last.
-- [ ] On shutdown:
+- [x] Create bounded executors for SQL and non-Minecraft computation.
+- [x] Initialize schema migrations before repositories.
+- [x] Provision configured worlds through the global scheduler.
+- [x] Load slot locator snapshot before listeners.
+- [~] Run crash recovery before enabling commands or gameplay; the startup gate blocks unfinished
+  creations until the recovery decision engine is implemented.
+- [~] Register listeners and commands last; startup ordering is enforced, but no listener or command
+  service exists yet.
+- [~] On shutdown:
   - stop accepting new lane work;
   - drain accepted lanes with a timeout;
-  - flush critical persistence work;
+  - flush critical persistence work once the write-behind queue exists;
   - cancel plugin-owned scheduler tasks;
-  - release chunk tickets;
+  - release chunk tickets once the runtime ticket manager exists;
   - close executors and database resources.
-- [ ] Add startup rollback so a partial enable does not leave listeners or executors active.
+- [x] Add startup rollback so a partial enable does not leave listeners or executors active.
 
 ### Acceptance tests
 
-- [ ] Valid empty data directory reaches `READY`.
-- [ ] Invalid config prevents world and repository activation.
-- [ ] Migration failure prevents listener registration.
-- [ ] Shutdown while lanes are active drains or reports timed-out operations.
-- [ ] Re-enable/restart does not duplicate listeners, worlds, or runtime projections.
+- [x] Valid empty data directory reaches `READY`.
+- [x] Invalid config prevents world and repository activation.
+- [x] Migration failure prevents listener registration.
+- [x] Shutdown while lanes are active drains or reports timed-out operations.
+- [x] Re-enable/restart does not duplicate listeners, worlds, or runtime projections.
 
 ## Milestone 2 — Versioned configuration system (`P0`)
 
@@ -252,8 +257,7 @@ Goal: detect database/world identity drift instead of trusting names after resta
   - geometry/config fingerprint;
   - state and version;
   - created/updated timestamps.
-- [~] Persist the world UUID after first successful provisioning; the atomic catalog operation is
-  implemented and awaits startup composition wiring.
+- [x] Persist the world UUID after first successful provisioning.
 - [x] On restart, compare loaded world UUID and environment with persisted identity.
 - [x] Fail closed if a configured name points to a replacement or copied world.
 - [x] Require an explicit admin repair/adopt operation for identity changes.
@@ -936,9 +940,9 @@ Goal: extensions add behavior without mutating internal aggregates.
 
 ## `openoneblock-paper`
 
-- [ ] Installable composition root and plugin metadata.
-- [ ] Typed config bootstrap.
-- [ ] World provisioning at startup.
+- [x] Installable composition root and plugin metadata.
+- [x] Typed config bootstrap.
+- [x] World provisioning at startup.
 - [ ] Chunk ticket adapter.
 - [ ] Commands and messages.
 - [ ] Teleport and entity adapters.
@@ -961,7 +965,7 @@ Goal: extensions add behavior without mutating internal aggregates.
 
 ## `openoneblock-persistence-sql`
 
-- [ ] World projection catalog.
+- [x] World projection catalog.
 - [ ] Full island/member/Magic Block repositories.
 - [ ] Counters and typed variables.
 - [ ] Rule execution state and scheduled actions.
@@ -994,7 +998,7 @@ Migration numbering must remain append-only and checksummed.
 
 - [x] V1: shard allocators, slots, and operations.
 - [x] V2: islands and active memberships.
-- [ ] V3: persisted world projections and geometry fingerprints.
+- [x] V3: persisted world projections and geometry fingerprints.
 - [ ] V4: operation phases, request fingerprints, outcomes, and effect receipts.
 - [ ] V5: island spawn points, settings, and lifecycle lock metadata.
 - [ ] V6: Magic Blocks and sequence uniqueness.
@@ -1028,7 +1032,9 @@ Migration numbering must remain append-only and checksummed.
 - Verify correct global/region/entity/async scheduler routing.
 - Verify no world mutation executes before ownership dispatch.
 - Verify void-world creator options and existing-world fail-closed checks.
-- Add live Paper test-server smoke tests once the composition root exists.
+- Latest manual smoke: Paper 1.21.11 build 132, clean install reached `READY`, restart reused the
+  persisted world projection, and bounded shutdown completed without plugin errors.
+- Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests
 
@@ -1110,7 +1116,7 @@ design change:
    - migration V3;
    - UUID/config fingerprint verification;
    - restart tests.
-4. `[ ] feat(paper): add startup composition and readiness gate`
+4. `[~] feat(paper): add startup composition and readiness gate`
    - migrate DB;
    - provision worlds;
    - rebuild locator;

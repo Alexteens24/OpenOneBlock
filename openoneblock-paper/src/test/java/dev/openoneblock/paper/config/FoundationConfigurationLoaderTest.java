@@ -182,6 +182,19 @@ class FoundationConfigurationLoaderTest {
                     problem.file().equals("worlds.yml") && problem.path().equals("build-height")));
   }
 
+  @Test
+  void worldGeometryFingerprintIgnoresLoggingButChangesWithLayout() throws Exception {
+    FoundationConfigurationSnapshot original = loader.load(dataDirectory);
+    String originalFingerprint = WorldGeometryFingerprint.from(original);
+    replace("config.yml", "debug: false", "debug: true");
+    FoundationConfigurationSnapshot loggingChanged = loader.load(dataDirectory);
+    replace("worlds.yml", "cell-size: 512", "cell-size: 528");
+    FoundationConfigurationSnapshot geometryChanged = loader.load(dataDirectory);
+
+    assertEquals(originalFingerprint, WorldGeometryFingerprint.from(loggingChanged));
+    assertFalse(originalFingerprint.equals(WorldGeometryFingerprint.from(geometryChanged)));
+  }
+
   private void replace(String file, String target, String replacement) throws IOException {
     Path path = dataDirectory.resolve(file);
     String original = Files.readString(path);

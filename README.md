@@ -9,9 +9,10 @@ the plugin source.
 
 ## Project status
 
-OpenOneBlock is in its foundation phase. The build produces an installable Paper foundation JAR,
-but the plugin deliberately starts in `DEGRADED` mode until configuration, persistence recovery,
-commands, and gameplay services are completed.
+OpenOneBlock is in its foundation phase. The build produces an installable Paper JAR whose startup
+validates configuration, migrates SQLite, provisions and verifies shared void worlds, rebuilds
+runtime projections, and reaches `READY` only after recovery checks pass. Player commands and
+gameplay services are not implemented yet.
 
 ## Design specifications
 
