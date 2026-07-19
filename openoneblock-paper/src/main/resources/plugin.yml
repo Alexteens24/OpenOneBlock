@@ -43,3 +43,6 @@ permissions:
   openoneblock.admin.inspect:
     description: Allows read-only inspection of island diagnostics.
     default: op
+  openoneblock.admin.bypass:
+    description: Explicitly bypasses island role and temporary protection policies.
+    default: op

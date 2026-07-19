@@ -44,10 +44,10 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 227 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 232 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
-minimal `/oneblock` command surface, and publishes a native in-memory protection engine; Paper
-gameplay listeners are the next active slice.
+minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
+the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
 
 ### Completed foundation work
 
@@ -73,6 +73,8 @@ gameplay listeners are the next active slice.
 - [x] Atomic in-memory protection index rebuilt from normalized SQLite state after recovery.
 - [x] Coherent post-commit protection projection publication across create/reset/delete lifecycle
   transitions, without database access on gameplay hot paths.
+- [x] Thin Paper protection adapters for player block/bucket/interaction/teleport actions and core
+  piston/fluid/explosion/fire mechanics, registered on the global scheduler after runtime recovery.
 - [x] SQLite connection factory using WAL-compatible configuration.
 - [x] Checksummed, atomic SQL migrations.
 - [x] `BEGIN IMMEDIATE` write transactions with bounded `SQLITE_BUSY` retry.
@@ -518,25 +520,29 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
 
 ### Paper event coverage
 
-- [ ] Block break/place.
-- [ ] Bucket fill/empty.
-- [ ] Container and redstone interaction.
-- [ ] Armor stands, item frames, vehicles, and entity interaction.
-- [ ] Entity damage and mob griefing.
-- [ ] Ender pearl, chorus fruit, portals, and teleport destinations.
-- [ ] Pistons with every moved source/destination block.
-- [ ] Fluid flow.
-- [ ] Explosions and TNT chains.
-- [ ] Fire spread and lightning.
+- [x] Block break/place.
+- [x] Bucket fill/empty.
+- [x] Container and redstone interaction.
+- [x] Armor stands, item frames, vehicles, and entity interaction through the generic entity adapter.
+- [~] Entity damage and mob griefing: direct player and player-projectile damage is protected; mob
+  griefing block adapters remain.
+- [~] Ender pearl, chorus fruit, portals, and teleport destinations: every player teleport
+  destination is protected; portal creation remains.
+- [x] Pistons with every moved source/destination block.
+- [x] Fluid flow.
+- [x] Explosions and TNT chains.
+- [~] Fire spread and lightning: fire block spread is protected; ignite/burn/lightning remain.
 - [ ] Falling blocks and entity block changes.
 - [ ] Growth, fade, form, spread, and physics events.
 - [ ] Hoppers, dispensers, projectiles, fishing hooks, and vehicles.
-- [ ] Cross-island transfer denial for all source/destination mechanics.
+- [~] Cross-island transfer denial for all source/destination mechanics: enforced for the adapters
+  above; remaining mechanical adapters are pending.
 
 ### Acceptance tests
 
 - [x] Event lookup remains O(1) with 100,000 synthetic islands.
-- [ ] No event adapter invokes repository or chunk-load APIs.
+- [x] No implemented event adapter invokes repository or chunk-load APIs; the listener constructor
+  accepts only an engine supplier and immutable query factory, enforced by an architecture test.
 - [x] Every resolvable non-`ACTIVE` lifecycle state denies gameplay mutation; archived islands have
   no locator ownership.
 - [ ] Current-border boundaries are exact for odd and even sizes.
@@ -1107,7 +1113,9 @@ Migration numbering must remain append-only and checksummed.
   was enforced, and bounded shutdown completed without plugin errors. The reset artifact was also
   smoke-tested against the already-migrated V8 database without schema or recovery drift. The latest
   artifact additionally exposed console-safe admin inspect help, deterministic invalid-ID usage, and
-  asynchronous not-found diagnostics before a clean shutdown.
+  asynchronous not-found diagnostics before a clean shutdown. The native-protection artifact then
+  restarted the same V8 database on Paper build 132, reached `READY with ... native protection
+  active`, registered listeners on the global scheduler, and shut down cleanly without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

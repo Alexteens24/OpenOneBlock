@@ -10,18 +10,22 @@ import dev.openoneblock.paper.command.CommandMessageRenderer;
 import dev.openoneblock.paper.command.OpenOneBlockCommand;
 import dev.openoneblock.paper.command.PaperCommandMessenger;
 import dev.openoneblock.paper.command.PaperIslandCommandGateway;
+import dev.openoneblock.paper.protection.BukkitProtectionQueryFactory;
+import dev.openoneblock.paper.protection.PaperProtectionListener;
 import dev.openoneblock.paper.scheduler.PaperPlatformTaskScheduler;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /** Paper entry point and composition root for OpenOneBlock. */
 public final class OpenOneBlockPlugin extends JavaPlugin {
   private final PluginRuntimeLifecycle lifecycle = new PluginRuntimeLifecycle();
+  private final AtomicBoolean protectionRegistered = new AtomicBoolean();
   private volatile FoundationBootstrapCoordinator bootstrap;
 
   /** Creates the Paper composition root. */
@@ -56,13 +60,43 @@ public final class OpenOneBlockPlugin extends JavaPlugin {
         .whenComplete(
             (runtime, failure) -> {
               if (failure == null) {
+                registerProtection(scheduler, runtime);
+              } else {
+                getLogger().log(Level.SEVERE, "OpenOneBlock startup failed closed", failure);
+              }
+            });
+  }
+
+  private void registerProtection(PaperPlatformTaskScheduler scheduler, FoundationRuntime runtime) {
+    scheduler
+        .global(
+            () -> {
+              if (protectionRegistered.compareAndSet(false, true)) {
+                getServer()
+                    .getPluginManager()
+                    .registerEvents(
+                        new PaperProtectionListener(
+                            () -> foundationRuntime().map(FoundationRuntime::protection),
+                            new BukkitProtectionQueryFactory("openoneblock.admin.bypass")),
+                        this);
+              }
+              return null;
+            })
+        .whenComplete(
+            (ignored, failure) -> {
+              if (failure == null) {
                 getLogger()
                     .info(
                         "OpenOneBlock foundation is READY with "
                             + runtime.worldProjections().size()
-                            + " verified world projection(s).");
+                            + " verified world projection(s) and native protection active.");
               } else {
-                getLogger().log(Level.SEVERE, "OpenOneBlock startup failed closed", failure);
+                getLogger().log(Level.SEVERE, "Native protection registration failed", failure);
+                scheduler.global(
+                    () -> {
+                      getServer().getPluginManager().disablePlugin(this);
+                      return null;
+                    });
               }
             });
   }
@@ -92,6 +126,7 @@ public final class OpenOneBlockPlugin extends JavaPlugin {
     getServer().getAsyncScheduler().cancelTasks(this);
     getServer().getScheduler().cancelTasks(this);
     bootstrap = null;
+    protectionRegistered.set(false);
   }
 
   /**
