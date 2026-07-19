@@ -1,4 +1,4 @@
-package dev.openoneblock.persistence.sqlite.island;
+package dev.openoneblock.core.island;
 
 import dev.openoneblock.api.id.IslandId;
 import dev.openoneblock.api.id.PlayerId;
@@ -6,7 +6,7 @@ import java.io.Serial;
 import java.util.Objects;
 
 /** Raised when a player already belongs to a non-archived island. */
-public final class ActiveMembershipConflictException extends RuntimeException {
+public final class IslandMembershipConflictException extends RuntimeException {
   @Serial private static final long serialVersionUID = 1L;
 
   private final transient PlayerId playerId;
@@ -15,19 +15,19 @@ public final class ActiveMembershipConflictException extends RuntimeException {
   /**
    * Creates a conflict with its authoritative existing assignment.
    *
-   * @param playerId player whose creation was refused
+   * @param playerId player whose mutation was refused
    * @param existingIslandId authoritative existing island
    */
-  public ActiveMembershipConflictException(PlayerId playerId, IslandId existingIslandId) {
+  public IslandMembershipConflictException(PlayerId playerId, IslandId existingIslandId) {
     super("Player " + playerId + " already belongs to island " + existingIslandId);
     this.playerId = Objects.requireNonNull(playerId, "playerId");
     this.existingIslandId = Objects.requireNonNull(existingIslandId, "existingIslandId");
   }
 
   /**
-   * Returns the player whose create was refused.
+   * Returns the conflicted player identity.
    *
-   * @return conflicted player identity
+   * @return player identity
    */
   public PlayerId playerId() {
     return playerId;

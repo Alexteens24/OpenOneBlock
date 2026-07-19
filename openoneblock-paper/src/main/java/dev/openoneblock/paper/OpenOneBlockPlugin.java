@@ -5,8 +5,15 @@ import dev.openoneblock.paper.bootstrap.FoundationRuntime;
 import dev.openoneblock.paper.bootstrap.PaperFoundationBootstrapEnvironment;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeState;
+import dev.openoneblock.paper.command.CommandFailureMapper;
+import dev.openoneblock.paper.command.CommandMessageRenderer;
+import dev.openoneblock.paper.command.OpenOneBlockCommand;
+import dev.openoneblock.paper.command.PaperCommandMessenger;
+import dev.openoneblock.paper.command.PaperIslandCommandGateway;
 import dev.openoneblock.paper.scheduler.PaperPlatformTaskScheduler;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -24,6 +31,22 @@ public final class OpenOneBlockPlugin extends JavaPlugin {
   public void onEnable() {
     lifecycle.transitionTo(PluginRuntimeState.BOOTSTRAPPING);
     PaperPlatformTaskScheduler scheduler = new PaperPlatformTaskScheduler(this, getServer());
+    OpenOneBlockCommand command =
+        new OpenOneBlockCommand(
+            lifecycle,
+            new PaperIslandCommandGateway(getServer(), this::foundationRuntime),
+            new PaperCommandMessenger(
+                this, scheduler, new CommandMessageRenderer(this::foundationRuntime)),
+            new CommandFailureMapper(),
+            getLogger());
+    getLifecycleManager()
+        .registerEventHandler(
+            LifecycleEvents.COMMANDS,
+            event ->
+                event
+                    .registrar()
+                    .register(
+                        "oneblock", "Build your own OneBlock experience.", List.of("ob"), command));
     FoundationBootstrapCoordinator created =
         new FoundationBootstrapCoordinator(
             lifecycle, new PaperFoundationBootstrapEnvironment(this, scheduler));

@@ -25,6 +25,7 @@ import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
+import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandOptimisticLockException;
 import dev.openoneblock.core.island.IslandSpawnPoint;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
@@ -242,8 +243,8 @@ class SqliteIslandCreationRepositoryTest {
 
     assertEquals(1, successes.size());
     assertEquals(1, failures.size());
-    ActiveMembershipConflictException conflict =
-        assertInstanceOf(ActiveMembershipConflictException.class, failures.getFirst());
+    IslandMembershipConflictException conflict =
+        assertInstanceOf(IslandMembershipConflictException.class, failures.getFirst());
     assertEquals(successes.getFirst().islandId(), conflict.existingIslandId());
     assertEquals(1, count(context.factory(), "islands"));
     assertEquals(1, count(context.factory(), "island_memberships"));

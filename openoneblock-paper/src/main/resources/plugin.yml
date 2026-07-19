@@ -18,3 +18,13 @@ softdepend:
   - Nexo
   - CraftEngine
   - MythicMobs
+permissions:
+  openoneblock.command:
+    description: Allows use of the OpenOneBlock player command.
+    default: true
+  openoneblock.command.create:
+    description: Allows creating an OpenOneBlock island.
+    default: true
+  openoneblock.command.help:
+    description: Allows viewing OpenOneBlock command help.
+    default: true

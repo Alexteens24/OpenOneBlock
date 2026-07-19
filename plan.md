@@ -44,9 +44,9 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 177 automated tests. It produces
-an installable Paper foundation JAR, reaches `READY` only after verified recovery, and does not yet
-register `/oneblock` commands or gameplay listeners.
+The repository is a Gradle multi-module project and currently passes 185 automated tests. It produces
+an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
+minimal `/oneblock` command surface, and does not yet register gameplay listeners.
 
 ### Completed foundation work
 
@@ -128,6 +128,9 @@ register `/oneblock` commands or gameplay listeners.
 - [x] Post-activation delivery that teleports an online owner only for interactive creation, publishes
   an immutable event for interactive and recovered activation, never repeats delivery on operation
   replay, and cannot roll back an already committed `ACTIVE` island.
+- [x] Paper lifecycle command registration for `/oneblock` and `/ob`, centralized permission/error
+  policy, locale-keyed scheduler-owned responses, operation IDs, and non-blocking `/ob create` and
+  `/ob help` handlers.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -140,6 +143,8 @@ register `/oneblock` commands or gameplay listeners.
   keeps the slot quarantined.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
+- [~] Player command workflow: create/help and the command platform are implemented; home, info,
+  reset, delete, confirmation tokens, and admin inspect remain.
 - [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, first
   Magic Block, normalized counters, and typed-variable storage are persisted; broader team roles,
   upgrades, and aggregate mutation services remain.
@@ -421,20 +426,20 @@ Goal: make the Foundation usable on a test Paper server.
 
 ### Command platform
 
-- [ ] Register `/oneblock` and `/ob` through the supported Paper command lifecycle.
-- [ ] Centralize permission nodes and command error mapping.
-- [ ] Make command responses asynchronous without blocking the server thread.
-- [ ] Add locale-ready message keys instead of hard-coded listener text.
-- [ ] Add operation IDs to every mutation command.
+- [x] Register `/oneblock` and `/ob` through the supported Paper command lifecycle.
+- [x] Centralize permission nodes and command error mapping.
+- [x] Make command responses asynchronous without blocking the server thread.
+- [x] Add locale-ready message keys instead of hard-coded listener text.
+- [x] Add operation IDs to every implemented mutation command.
 
 ### Commands
 
-- [ ] `/ob create`.
+- [x] `/ob create`.
 - [ ] `/ob home`.
 - [ ] `/ob delete` with explicit confirmation token.
 - [ ] `/ob reset` with explicit confirmation token.
 - [ ] `/ob info`.
-- [ ] `/ob help`.
+- [x] `/ob help`.
 - [ ] Basic admin inspect command.
 
 ### Teleport safety
@@ -447,8 +452,8 @@ Goal: make the Foundation usable on a test Paper server.
 
 ### Acceptance tests
 
-- [ ] Commands reject before plugin `READY`.
-- [ ] Console/player sender requirements are explicit.
+- [x] Mutation commands reject before plugin `READY`.
+- [x] Console/player sender requirements are explicit for implemented commands.
 - [ ] `/ob home` performs no SQL on the region thread.
 - [ ] Teleport failure leaves island state unchanged.
 - [ ] Confirmation tokens expire and cannot target another island/version.
@@ -1068,8 +1073,9 @@ Migration numbering must remain append-only and checksummed.
 - Verify no world mutation executes before ownership dispatch.
 - Verify void-world creator options and existing-world fail-closed checks.
 - Latest manual smoke: Paper 1.21.11 build 132 on Java 21, an existing foundation database migrated
-  from V6 through V7, restart reused the persisted world projection, reached `READY`, and bounded
-  shutdown completed without plugin errors.
+  from V6 through V7, restart reused the persisted world projection, reached `READY`, both
+  `/oneblock` and `/ob` lifecycle registrations responded, console/player constraints were enforced,
+  and bounded shutdown completed without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

@@ -1,0 +1,15 @@
+package dev.openoneblock.paper.command;
+
+/** Central permission identities used by the Paper command surface. */
+public final class OpenOneBlockPermissions {
+  /** Permission to discover and use the root player command. */
+  public static final String COMMAND = "openoneblock.command";
+
+  /** Permission to create a new island. */
+  public static final String CREATE = "openoneblock.command.create";
+
+  /** Permission to view help. */
+  public static final String HELP = "openoneblock.command.help";
+
+  private OpenOneBlockPermissions() {}
+}

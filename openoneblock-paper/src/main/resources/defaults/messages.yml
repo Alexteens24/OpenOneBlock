@@ -1,7 +1,20 @@
-# Message presentation defaults. Message keys are added with command milestones.
+# Message presentation defaults.
 schema-version: 1
 locale: en_US
 formatting:
   mini-message: true
   legacy-colors: false
-messages: {}
+messages:
+  command.help: "OpenOneBlock: /ob create"
+  command.unknown: "Unknown subcommand. Use /ob help."
+  command.player-only: "This command can only be used by a player."
+  command.no-permission: "You do not have permission to do that."
+  command.not-ready: "OpenOneBlock is still starting. Try again shortly."
+  command.create.started: "Creating your island... Operation: {operation_id}"
+  command.create.success: "Island {island_id} is ready."
+  command.create.replay: "Island {island_id} was already created."
+  command.create.already-member: "You already belong to island {island_id}."
+  command.create.failed: "Island creation failed safely. Operation: {operation_id}"
+  command.create.delivery-failed: >-
+    Island {island_id} is active, but the final teleport/message delivery failed.
+  command.internal-error: "OpenOneBlock could not complete that operation."

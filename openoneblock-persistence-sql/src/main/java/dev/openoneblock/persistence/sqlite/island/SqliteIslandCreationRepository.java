@@ -19,6 +19,7 @@ import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
+import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandOptimisticLockException;
 import dev.openoneblock.core.lifecycle.IslandLifecyclePolicy;
 import dev.openoneblock.core.lifecycle.TransitionDecision;
@@ -1549,7 +1550,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       statement.setString(1, playerId.toString());
       try (ResultSet result = statement.executeQuery()) {
         if (result.next()) {
-          throw new ActiveMembershipConflictException(
+          throw new IslandMembershipConflictException(
               playerId, IslandId.parse(result.getString("island_id")));
         }
       }
