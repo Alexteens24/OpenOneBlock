@@ -24,6 +24,7 @@ import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.SqliteImmediateTransactions;
 import dev.openoneblock.persistence.sqlite.SqlitePersistenceException;
 import dev.openoneblock.persistence.sqlite.slot.CommittedSlotPublicationException;
+import dev.openoneblock.protection.CommittedIslandProtectionPublisher;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -52,6 +53,7 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
 
   private final SqliteImmediateTransactions transactions;
   private final CommittedSlotPublisher locator;
+  private final CommittedIslandProtectionPublisher protectionPublisher;
   private final Executor databaseExecutor;
 
   /**
@@ -65,10 +67,27 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
       SqliteConnectionFactory connectionFactory,
       CommittedSlotPublisher locator,
       Executor databaseExecutor) {
+    this(connectionFactory, locator, CommittedIslandProtectionPublisher.NO_OP, databaseExecutor);
+  }
+
+  /**
+   * Creates a deletion repository with coherent post-commit protection publication.
+   *
+   * @param connectionFactory SQLite connection source
+   * @param locator post-commit runtime slot projection
+   * @param protectionPublisher post-commit gameplay projection
+   * @param databaseExecutor executor reserved for SQL work
+   */
+  public SqliteIslandDeletionRepository(
+      SqliteConnectionFactory connectionFactory,
+      CommittedSlotPublisher locator,
+      CommittedIslandProtectionPublisher protectionPublisher,
+      Executor databaseExecutor) {
     this.transactions =
         new SqliteImmediateTransactions(
             Objects.requireNonNull(connectionFactory, "connectionFactory"), 12, 2, 30);
     this.locator = Objects.requireNonNull(locator, "locator");
+    this.protectionPublisher = Objects.requireNonNull(protectionPublisher, "protectionPublisher");
     this.databaseExecutor = Objects.requireNonNull(databaseExecutor, "databaseExecutor");
   }
 
@@ -99,6 +118,7 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
       if (outcome.publishEntry() != null) {
         publishSlot(outcome.progress().island().primarySlot().orElseThrow());
       }
+      protectionPublisher.publishCommitted(outcome.progress().island().islandId());
       return outcome.progress();
     } catch (SQLException exception) {
       throw new SqlitePersistenceException("Failed to begin SQLite island deletion", exception);
@@ -118,6 +138,11 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
         }
       } else if (outcome.publishEntry() != null) {
         publishSlot(outcome.progress().island().primarySlot().orElseThrow());
+        protectionPublisher.publishCommitted(outcome.progress().island().islandId());
+      }
+      if (outcome.progress().island().lifecycleState() == IslandLifecycleState.ARCHIVED) {
+        protectionPublisher.removeCommitted(
+            outcome.progress().island().islandId(), outcome.progress().island().version());
       }
       return outcome.progress();
     } catch (SQLException exception) {

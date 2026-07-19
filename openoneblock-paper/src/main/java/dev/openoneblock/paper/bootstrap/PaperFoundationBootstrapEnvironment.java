@@ -12,6 +12,7 @@ import dev.openoneblock.core.island.IslandHomeService;
 import dev.openoneblock.core.island.IslandInspectionService;
 import dev.openoneblock.core.island.ResetIslandService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
+import dev.openoneblock.core.locator.IslandLocationResolver;
 import dev.openoneblock.core.locator.WorldEnvironment;
 import dev.openoneblock.core.locator.WorldProjectionDefinition;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
@@ -23,6 +24,7 @@ import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
+import dev.openoneblock.paper.config.ProtectionConfigurationCompiler;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.ProvisionedWorldHeight;
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
@@ -43,9 +45,14 @@ import dev.openoneblock.persistence.sqlite.island.SqliteIslandDeletionRepository
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandResetRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
+import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProtectionPublisher;
+import dev.openoneblock.persistence.sqlite.protection.SqliteIslandProtectionSnapshotSource;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldProjectionCatalog;
+import dev.openoneblock.protection.InMemoryIslandProtectionIndex;
+import dev.openoneblock.protection.ProtectionEngine;
+import dev.openoneblock.protection.RolePermissionRegistry;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -168,9 +175,28 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
             locator -> {
               Function<dev.openoneblock.api.id.ShardGroupId, GridGeometry> geometryByShard =
                   ignored -> requireGeometry();
+              InMemoryIslandProtectionIndex protectionIndex = new InMemoryIslandProtectionIndex();
+              RolePermissionRegistry rolePermissions =
+                  new ProtectionConfigurationCompiler().compile(configuration.roles());
+              ProtectionEngine protectionEngine =
+                  new ProtectionEngine(
+                      new IslandLocationResolver(activeWorlds, geometryByShard, locator),
+                      geometryByShard,
+                      protectionIndex,
+                      rolePermissions,
+                      List.of());
+              SqliteIslandProtectionSnapshotSource protectionSource =
+                  new SqliteIslandProtectionSnapshotSource(
+                      activeFactory, activeExecutors.database());
+              SqliteCommittedIslandProtectionPublisher protectionPublisher =
+                  new SqliteCommittedIslandProtectionPublisher(protectionSource, protectionIndex);
               IslandCreationRepository repository =
                   new SqliteIslandCreationRepository(
-                      activeFactory, geometryByShard, locator, activeExecutors.database());
+                      activeFactory,
+                      geometryByShard,
+                      locator,
+                      protectionPublisher,
+                      activeExecutors.database());
               IslandExecutionLanes lanes =
                   new IslandExecutionLanes(
                       activeExecutors.computation(), MAXIMUM_IN_FLIGHT_PER_ISLAND);
@@ -232,7 +258,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       clock);
               SqliteIslandDeletionRepository deletionRepository =
                   new SqliteIslandDeletionRepository(
-                      activeFactory, locator, activeExecutors.database());
+                      activeFactory, locator, protectionPublisher, activeExecutors.database());
               DeleteIslandService deletionService =
                   new DeleteIslandService(
                       deletionRepository,
@@ -247,7 +273,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       runtimeManager, activeWorlds, geometryByShard, islandCleanup);
               SqliteIslandResetRepository resetRepository =
                   new SqliteIslandResetRepository(
-                      activeFactory, locator, activeExecutors.database());
+                      activeFactory, locator, protectionPublisher, activeExecutors.database());
               ResetIslandService resetService =
                   new ResetIslandService(
                       resetRepository,
@@ -263,6 +289,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       configuration,
                       activeWorlds,
                       locator,
+                      protectionIndex,
+                      protectionEngine,
                       repository,
                       lanes,
                       runtimeManager,
@@ -291,7 +319,12 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   .thenCompose(
                       pending ->
                           sequence(pending.stream().map(deletionService::recoverPending).toList()))
-                  .thenApply(ignored -> recovered);
+                  .thenCompose(ignored -> protectionSource.loadCommittedSnapshots())
+                  .thenApply(
+                      snapshots -> {
+                        protectionIndex.replaceAll(snapshots);
+                        return recovered;
+                      });
             });
   }
 

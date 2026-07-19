@@ -1,0 +1,52 @@
+package dev.openoneblock.paper.config;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.openoneblock.api.id.NamespacedId;
+import dev.openoneblock.protection.ProtectionAction;
+import dev.openoneblock.protection.RolePermissionRegistry;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.Test;
+
+class ProtectionConfigurationCompilerTest {
+  @Test
+  void compilesInheritanceWildcardAndPermissionAliases() {
+    Map<String, FoundationConfigurationSnapshot.RoleSettings> roles =
+        Map.of(
+            "owner", role(List.of(), "*"),
+            "member", role(List.of(), "BLOCK_BREAK", "USE_BUCKET"),
+            "trusted", role(List.of("member"), "REDSTONE_USE"),
+            "visitor", role(List.of()),
+            "manager", role(List.of(), "INVITE_MEMBER"));
+
+    RolePermissionRegistry compiled = new ProtectionConfigurationCompiler().compile(roles);
+
+    assertTrue(compiled.allows(id("owner"), ProtectionAction.FIRE_SPREAD));
+    assertTrue(compiled.allows(id("member"), ProtectionAction.BUCKET_FILL));
+    assertTrue(compiled.allows(id("member"), ProtectionAction.BUCKET_EMPTY));
+    assertTrue(compiled.allows(id("trusted"), ProtectionAction.BLOCK_BREAK));
+    assertTrue(compiled.allows(id("trusted"), ProtectionAction.REDSTONE_USE));
+    assertFalse(compiled.allows(id("visitor"), ProtectionAction.BLOCK_BREAK));
+    assertFalse(compiled.allows(id("manager"), ProtectionAction.BLOCK_BREAK));
+  }
+
+  @Test
+  void requiresExplicitVisitorFallback() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ProtectionConfigurationCompiler().compile(Map.of("owner", role(List.of(), "*"))));
+  }
+
+  private static FoundationConfigurationSnapshot.RoleSettings role(
+      List<String> inherits, String... permissions) {
+    return new FoundationConfigurationSnapshot.RoleSettings(inherits, Set.of(permissions));
+  }
+
+  private static NamespacedId id(String role) {
+    return NamespacedId.of("openoneblock", role);
+  }
+}

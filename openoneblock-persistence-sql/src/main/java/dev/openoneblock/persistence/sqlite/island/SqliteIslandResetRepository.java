@@ -28,6 +28,7 @@ import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.SqliteImmediateTransactions;
 import dev.openoneblock.persistence.sqlite.SqlitePersistenceException;
 import dev.openoneblock.persistence.sqlite.slot.CommittedSlotPublicationException;
+import dev.openoneblock.protection.CommittedIslandProtectionPublisher;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -56,6 +57,7 @@ public final class SqliteIslandResetRepository implements IslandResetRepository 
 
   private final SqliteImmediateTransactions transactions;
   private final CommittedSlotPublisher locator;
+  private final CommittedIslandProtectionPublisher protectionPublisher;
   private final Executor databaseExecutor;
 
   /**
@@ -69,10 +71,27 @@ public final class SqliteIslandResetRepository implements IslandResetRepository 
       SqliteConnectionFactory connectionFactory,
       CommittedSlotPublisher locator,
       Executor databaseExecutor) {
+    this(connectionFactory, locator, CommittedIslandProtectionPublisher.NO_OP, databaseExecutor);
+  }
+
+  /**
+   * Creates a reset repository with coherent post-commit protection publication.
+   *
+   * @param connectionFactory SQLite connection source
+   * @param locator post-commit runtime slot projection
+   * @param protectionPublisher post-commit gameplay projection
+   * @param databaseExecutor executor reserved for SQL work
+   */
+  public SqliteIslandResetRepository(
+      SqliteConnectionFactory connectionFactory,
+      CommittedSlotPublisher locator,
+      CommittedIslandProtectionPublisher protectionPublisher,
+      Executor databaseExecutor) {
     this.transactions =
         new SqliteImmediateTransactions(
             Objects.requireNonNull(connectionFactory, "connectionFactory"), 12, 2, 30);
     this.locator = Objects.requireNonNull(locator, "locator");
+    this.protectionPublisher = Objects.requireNonNull(protectionPublisher, "protectionPublisher");
     this.databaseExecutor = Objects.requireNonNull(databaseExecutor, "databaseExecutor");
   }
 
@@ -116,6 +135,7 @@ public final class SqliteIslandResetRepository implements IslandResetRepository 
     try {
       Transition transition = transactions.execute(connection -> begin(connection, request));
       publish(transition.progress().island().primarySlot().orElseThrow());
+      protectionPublisher.publishCommitted(transition.progress().island().islandId());
       return transition.progress();
     } catch (SQLException exception) {
       throw new SqlitePersistenceException("Failed to begin SQLite island reset", exception);
@@ -127,6 +147,7 @@ public final class SqliteIslandResetRepository implements IslandResetRepository 
       Transition transition =
           transactions.execute(connection -> completeCleanup(connection, completion));
       publish(transition.progress().island().primarySlot().orElseThrow());
+      protectionPublisher.publishCommitted(transition.progress().island().islandId());
       return transition.progress();
     } catch (SQLException exception) {
       throw new SqlitePersistenceException("Failed to advance SQLite reset cleanup", exception);
@@ -138,6 +159,7 @@ public final class SqliteIslandResetRepository implements IslandResetRepository 
       Transition transition =
           transactions.execute(connection -> beginPreparationFailure(connection, failure));
       publish(transition.progress().island().primarySlot().orElseThrow());
+      protectionPublisher.publishCommitted(transition.progress().island().islandId());
       return transition.progress();
     } catch (SQLException exception) {
       throw new SqlitePersistenceException(
@@ -149,6 +171,7 @@ public final class SqliteIslandResetRepository implements IslandResetRepository 
     try {
       Transition transition = transactions.execute(connection -> activate(connection, activation));
       publish(transition.progress().island().primarySlot().orElseThrow());
+      protectionPublisher.publishCommitted(transition.progress().island().islandId());
       return transition.progress();
     } catch (SQLException exception) {
       throw new SqlitePersistenceException("Failed to activate SQLite island reset", exception);

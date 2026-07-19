@@ -324,10 +324,24 @@ class FoundationBootstrapCoordinatorTest {
                 runtimes, worlds, ignored -> geometry, cleanup),
             preparation,
             java.time.Clock.systemUTC());
+    InMemorySlotLocatorIndex locator = new InMemorySlotLocatorIndex();
+    dev.openoneblock.protection.InMemoryIslandProtectionIndex protectionIndex =
+        new dev.openoneblock.protection.InMemoryIslandProtectionIndex();
+    dev.openoneblock.protection.ProtectionEngine protection =
+        new dev.openoneblock.protection.ProtectionEngine(
+            new dev.openoneblock.core.locator.IslandLocationResolver(
+                worlds, ignored -> geometry, locator),
+            ignored -> geometry,
+            protectionIndex,
+            new dev.openoneblock.paper.config.ProtectionConfigurationCompiler()
+                .compile(configuration.roles()),
+            List.of());
     return new FoundationRuntime(
         configuration,
         worlds,
-        new InMemorySlotLocatorIndex(),
+        locator,
+        protectionIndex,
+        protection,
         repository,
         lanes,
         runtimes,

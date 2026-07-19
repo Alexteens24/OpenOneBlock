@@ -39,6 +39,7 @@ import dev.openoneblock.persistence.sqlite.SqliteImmediateTransactions;
 import dev.openoneblock.persistence.sqlite.SqlitePersistenceException;
 import dev.openoneblock.persistence.sqlite.slot.CommittedSlotPublicationException;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotReservations;
+import dev.openoneblock.protection.CommittedIslandProtectionPublisher;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -71,6 +72,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
   private final SqliteImmediateTransactions transactions;
   private final SqliteSlotReservations reservations;
   private final CommittedSlotPublisher locatorPublisher;
+  private final CommittedIslandProtectionPublisher protectionPublisher;
   private final Executor databaseExecutor;
 
   /**
@@ -86,10 +88,34 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       Function<ShardGroupId, GridGeometry> geometryByShard,
       CommittedSlotPublisher locatorPublisher,
       Executor databaseExecutor) {
+    this(
+        connectionFactory,
+        geometryByShard,
+        locatorPublisher,
+        CommittedIslandProtectionPublisher.NO_OP,
+        databaseExecutor);
+  }
+
+  /**
+   * Creates the repository with coherent post-commit locator and protection publication.
+   *
+   * @param connectionFactory SQLite connection source
+   * @param geometryByShard validated grid geometry lookup
+   * @param locatorPublisher post-commit locator projection
+   * @param protectionPublisher post-commit gameplay projection
+   * @param databaseExecutor shared executor reserved for database work
+   */
+  public SqliteIslandCreationRepository(
+      SqliteConnectionFactory connectionFactory,
+      Function<ShardGroupId, GridGeometry> geometryByShard,
+      CommittedSlotPublisher locatorPublisher,
+      CommittedIslandProtectionPublisher protectionPublisher,
+      Executor databaseExecutor) {
     this.connectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory");
     this.transactions = new SqliteImmediateTransactions(connectionFactory, 12, 2, 30);
     this.reservations = new SqliteSlotReservations(geometryByShard);
     this.locatorPublisher = Objects.requireNonNull(locatorPublisher, "locatorPublisher");
+    this.protectionPublisher = Objects.requireNonNull(protectionPublisher, "protectionPublisher");
     this.databaseExecutor = Objects.requireNonNull(databaseExecutor, "databaseExecutor");
   }
 
@@ -277,6 +303,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
     } catch (RuntimeException exception) {
       throw new CommittedSlotPublicationException(slot, exception);
     }
+    protectionPublisher.publishCommitted(committed.islandId());
     return committed;
   }
 
@@ -299,6 +326,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
     } catch (RuntimeException exception) {
       throw new CommittedSlotPublicationException(slot, exception);
     }
+    protectionPublisher.publishCommitted(committed.islandId());
     return committed;
   }
 
@@ -318,6 +346,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
     } catch (RuntimeException exception) {
       throw new CommittedSlotPublicationException(slot, exception);
     }
+    protectionPublisher.publishCommitted(committed.islandId());
     return committed;
   }
 
@@ -331,6 +360,8 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
           "Failed to abort SQLite island creation before world work", exception);
     }
     removeReleasedProjection(committed.releasedEntry());
+    protectionPublisher.removeCommitted(
+        committed.snapshot().islandId(), committed.snapshot().version());
     return committed.snapshot();
   }
 
@@ -343,6 +374,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       throw new SqlitePersistenceException("Failed to begin SQLite creation cleanup", exception);
     }
     publishSlot(committed.primarySlot().orElseThrow());
+    protectionPublisher.publishCommitted(committed.islandId());
     return committed;
   }
 
@@ -357,8 +389,11 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
     }
     if (committed.releasedEntry() != null) {
       removeReleasedProjection(committed.releasedEntry());
+      protectionPublisher.removeCommitted(
+          committed.snapshot().islandId(), committed.snapshot().version());
     } else {
       publishSlot(committed.snapshot().primarySlot().orElseThrow());
+      protectionPublisher.publishCommitted(committed.snapshot().islandId());
     }
     return committed.snapshot();
   }

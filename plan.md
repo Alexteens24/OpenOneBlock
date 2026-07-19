@@ -44,9 +44,10 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 213 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 227 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
-minimal `/oneblock` command surface, and does not yet register gameplay listeners.
+minimal `/oneblock` command surface, and publishes a native in-memory protection engine; Paper
+gameplay listeners are the next active slice.
 
 ### Completed foundation work
 
@@ -68,6 +69,10 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
 - [x] O(1) in-memory slot locator with fail-closed conflict state.
 - [x] World UUID to shard/dimension projection registry.
 - [x] O(1) world location to island slot resolver.
+- [x] Immutable native protection query/decision model and fail-closed evaluation pipeline.
+- [x] Atomic in-memory protection index rebuilt from normalized SQLite state after recovery.
+- [x] Coherent post-commit protection projection publication across create/reset/delete lifecycle
+  transitions, without database access on gameplay hot paths.
 - [x] SQLite connection factory using WAL-compatible configuration.
 - [x] Checksummed, atomic SQL migrations.
 - [x] `BEGIN IMMEDIATE` write transactions with bounded `SQLITE_BUSY` retry.
@@ -482,7 +487,7 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
 
 ### Core query model
 
-- [ ] Add immutable `ProtectionQuery`:
+- [x] Add immutable `ProtectionQuery`:
   - actor;
   - action;
   - source location;
@@ -490,24 +495,26 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
   - target;
   - cause;
   - context snapshot.
-- [ ] Add `ALLOW`, `DENY`, and `PASS` decisions with namespaced reason IDs.
-- [ ] Add protection policy registry and deterministic priority.
-- [ ] Add current-border geometry to runtime island snapshot.
-- [ ] Add admin bypass as an explicit final policy, not scattered checks.
-- [ ] Add temporary script policies with bounded lifetime.
+- [x] Add `ALLOW`, `DENY`, and `PASS` decisions with namespaced reason IDs.
+- [~] Add protection policy registry and deterministic priority: immutable deterministic policy
+  chains exist; namespaced registration and explicit priorities remain.
+- [x] Add current-border geometry to runtime island snapshot.
+- [x] Add admin bypass as an explicit final policy, not scattered checks.
+- [~] Add temporary script policies with bounded lifetime: policies can deny through the immutable
+  chain; expiry/ownership indexing remains.
 
 ### Required evaluation order
 
-- [ ] Managed world lookup.
-- [ ] Slot/island lookup.
-- [ ] Lifecycle gate.
-- [ ] Current border check.
-- [ ] Membership lookup.
-- [ ] Role permission lookup.
-- [ ] Source/destination cross-boundary check.
-- [ ] Magic Block policy.
-- [ ] Temporary script policy.
-- [ ] Admin bypass.
+- [x] Managed world lookup.
+- [x] Slot/island lookup.
+- [x] Lifecycle gate.
+- [x] Current border check.
+- [x] Membership lookup.
+- [x] Role permission lookup.
+- [x] Source/destination cross-boundary check.
+- [x] Magic Block policy.
+- [x] Temporary script policy.
+- [x] Admin bypass.
 
 ### Paper event coverage
 
@@ -528,9 +535,10 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
 
 ### Acceptance tests
 
-- [ ] Event lookup remains O(1) with 100,000 synthetic islands.
+- [x] Event lookup remains O(1) with 100,000 synthetic islands.
 - [ ] No event adapter invokes repository or chunk-load APIs.
-- [ ] Every non-`ACTIVE` lifecycle state denies gameplay mutation.
+- [x] Every resolvable non-`ACTIVE` lifecycle state denies gameplay mutation; archived islands have
+  no locator ownership.
 - [ ] Current-border boundaries are exact for odd and even sizes.
 - [ ] Piston/fluid/explosion tests cover neighboring cells and safety gaps.
 - [ ] Conflicted locator cells fail closed.
