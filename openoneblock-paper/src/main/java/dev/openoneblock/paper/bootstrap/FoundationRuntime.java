@@ -4,6 +4,7 @@ import dev.openoneblock.core.execution.IslandExecutionLanes;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
+import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
 import java.util.Objects;
 
@@ -15,13 +16,15 @@ import java.util.Objects;
  * @param slotLocator rebuilt committed slot projection
  * @param islandRepository authoritative island persistence service
  * @param islandLanes sequential mutation lanes
+ * @param islandRuntimes reference-counted island chunk lifecycle manager
  */
 public record FoundationRuntime(
     FoundationConfigurationSnapshot configuration,
     WorldProjectionRegistry worldProjections,
     InMemorySlotLocatorIndex slotLocator,
     IslandCreationRepository islandRepository,
-    IslandExecutionLanes islandLanes) {
+    IslandExecutionLanes islandLanes,
+    IslandRuntimeManager islandRuntimes) {
   /** Validates the complete recovered service graph. */
   public FoundationRuntime {
     Objects.requireNonNull(configuration, "configuration");
@@ -29,5 +32,6 @@ public record FoundationRuntime(
     Objects.requireNonNull(slotLocator, "slotLocator");
     Objects.requireNonNull(islandRepository, "islandRepository");
     Objects.requireNonNull(islandLanes, "islandLanes");
+    Objects.requireNonNull(islandRuntimes, "islandRuntimes");
   }
 }

@@ -11,12 +11,14 @@ import dev.openoneblock.core.locator.WorldProjectionDefinition;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
+import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.ProvisionedWorldHeight;
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
+import dev.openoneblock.paper.runtime.PaperIslandChunkTicketController;
 import dev.openoneblock.paper.world.BukkitVoidWorldFactory;
 import dev.openoneblock.paper.world.PaperSharedWorldManager;
 import dev.openoneblock.paper.world.ProvisionedSharedWorld;
@@ -55,6 +57,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
   private volatile SqliteConnectionFactory connectionFactory;
   private volatile GridGeometry geometry;
   private volatile WorldProjectionRegistry worldProjections;
+  private volatile PaperIslandChunkTicketController chunkTickets;
   private volatile FoundationRuntime runtime;
 
   /**
@@ -159,9 +162,23 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                         IslandExecutionLanes lanes =
                             new IslandExecutionLanes(
                                 activeExecutors.computation(), MAXIMUM_IN_FLIGHT_PER_ISLAND);
+                        PaperIslandChunkTicketController ticketController =
+                            new PaperIslandChunkTicketController(
+                                plugin, plugin.getServer(), scheduler);
+                        IslandRuntimeManager runtimeManager =
+                            new IslandRuntimeManager(
+                                ticketController,
+                                Duration.ofSeconds(
+                                    configuration.operations().creationTimeoutSeconds()));
                         FoundationRuntime recovered =
                             new FoundationRuntime(
-                                configuration, activeWorlds, locator, repository, lanes);
+                                configuration,
+                                activeWorlds,
+                                locator,
+                                repository,
+                                lanes,
+                                runtimeManager);
+                        chunkTickets = ticketController;
                         runtime = recovered;
                         return recovered;
                       });
@@ -176,7 +193,11 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
       return existing;
     }
     FoundationRuntime activeRuntime = runtime;
-    CompletableFuture<Void> drain =
+    PaperIslandChunkTicketController activeTickets = chunkTickets;
+    if (!plugin.isEnabled() && activeTickets != null) {
+      activeTickets.emergencyReleaseAllOnDisable();
+    }
+    CompletableFuture<Void> laneDrain =
         activeRuntime == null
             ? CompletableFuture.completedFuture(null)
             : activeRuntime
@@ -184,10 +205,29 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                 .shutdownGracefully()
                 .toCompletableFuture()
                 .orTimeout(drainTimeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+    CompletionStage<Void> drain =
+        laneDrain
+            .handle((ignored, failure) -> failure)
+            .thenCompose(
+                laneFailure -> {
+                  CompletionStage<Void> ticketDrain =
+                      activeRuntime == null
+                          ? CompletableFuture.completedFuture(null)
+                          : activeRuntime.islandRuntimes().shutdown();
+                  return ticketDrain.handle(
+                      (ignored, ticketFailure) -> {
+                        Throwable combined = combineFailures(laneFailure, ticketFailure);
+                        if (combined != null) {
+                          throw new CompletionException(combined);
+                        }
+                        return null;
+                      });
+                });
     CompletionStage<Void> candidate =
         drain.handle(
             (ignored, failure) -> {
               runtime = null;
+              chunkTickets = null;
               worldProjections = null;
               connectionFactory = null;
               geometry = null;
@@ -205,6 +245,29 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
       return candidate;
     }
     return shutdown.get();
+  }
+
+  private static Throwable combineFailures(Throwable first, Throwable second) {
+    Throwable primary = unwrap(first);
+    Throwable additional = unwrap(second);
+    if (primary == null) {
+      return additional;
+    }
+    if (additional != null && additional != primary) {
+      primary.addSuppressed(additional);
+    }
+    return primary;
+  }
+
+  private static Throwable unwrap(Throwable failure) {
+    if (failure == null) {
+      return null;
+    }
+    Throwable current = failure;
+    while (current instanceof CompletionException && current.getCause() != null) {
+      current = current.getCause();
+    }
+    return current;
   }
 
   private void validateWorldHeights(

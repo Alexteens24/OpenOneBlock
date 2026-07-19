@@ -15,6 +15,8 @@ import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
+import dev.openoneblock.core.runtime.IslandChunkTicketLease;
+import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
@@ -140,7 +142,22 @@ class FoundationBootstrapCoordinatorTest {
         new WorldProjectionRegistry(List.of()),
         new InMemorySlotLocatorIndex(),
         new EmptyIslandRepository(),
-        new IslandExecutionLanes(Runnable::run, 4));
+        new IslandExecutionLanes(Runnable::run, 4),
+        new IslandRuntimeManager(
+            request ->
+                CompletableFuture.completedFuture(
+                    new IslandChunkTicketLease() {
+                      @Override
+                      public int chunkCount() {
+                        return request.chunks().size();
+                      }
+
+                      @Override
+                      public CompletionStage<Void> release() {
+                        return CompletableFuture.completedFuture(null);
+                      }
+                    }),
+            Duration.ofSeconds(1)));
   }
 
   private static final class FakeEnvironment implements FoundationBootstrapEnvironment {

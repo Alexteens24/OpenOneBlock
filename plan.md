@@ -44,8 +44,8 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 124 automated tests. It produces
-an installable Paper foundation JAR, but deliberately remains in `DEGRADED` mode and does not yet
+The repository is a Gradle multi-module project and currently passes 138 automated tests. It produces
+an installable Paper foundation JAR, reaches `READY` only after verified recovery, and does not yet
 register `/oneblock` commands or gameplay listeners.
 
 ### Completed foundation work
@@ -101,6 +101,11 @@ register `/oneblock` commands or gameplay listeners.
   rebuilds slot projections, runs a fail-closed recovery gate, and atomically reaches `READY`.
 - [x] Bounded graceful shutdown with lane draining, scheduler cancellation, executor teardown, and
   tested startup rollback.
+- [x] Shared reference-counted island runtime lifecycle with minimal immutable headers, deterministic
+  chunk coverage, bounded complete-set ticket acquisition, partial rollback, loaded-chunk metrics,
+  and no per-island repeating tasks.
+- [x] Paper plugin-ticket adapter with owning-region load/verification/mutation, overlapping lease
+  reference counts, timeout/late-completion cleanup, and disable-safe emergency release.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -280,40 +285,40 @@ cost.
 
 ### Runtime model
 
-- [ ] Implement island runtime states:
+- [x] Implement island runtime states:
   - `UNLOADED`;
   - `PREPARING`;
   - `ACTIVE`;
   - `IDLE`;
   - `UNLOADING`.
-- [ ] Separate durable island state from transient runtime state.
-- [ ] Keep only minimal immutable headers for offline islands.
-- [ ] Add reference-counted activity reasons:
+- [x] Separate durable island state from transient runtime state.
+- [x] Keep only minimal immutable headers for offline islands.
+- [x] Add reference-counted activity reasons:
   - online player;
   - world preparation;
   - cleanup;
   - Magic Block regeneration;
   - scheduled world action;
   - admin inspection requiring chunks.
-- [ ] Add one shared runtime manager, not one repeating task per island.
+- [x] Add one shared runtime manager, not one repeating task per island.
 
 ### Chunk ownership
 
-- [ ] Calculate affected chunks from reserved/full-cell bounds.
-- [ ] Acquire Paper plugin chunk tickets on the owning region.
-- [ ] Verify every requested chunk load result.
-- [ ] Release all tickets on success, rollback, cancellation, timeout, and shutdown.
-- [ ] Never load a chunk to perform location lookup or read island metadata.
-- [ ] Add timeouts and operation-level diagnostics.
-- [ ] Track loaded island chunks as a metric.
+- [x] Calculate affected chunks from reserved/full-cell bounds.
+- [x] Acquire Paper plugin chunk tickets on the owning region.
+- [x] Verify every requested chunk load result.
+- [x] Release all tickets on success, rollback, cancellation, timeout, and shutdown.
+- [x] Never load a chunk to perform location lookup or read island metadata.
+- [x] Add timeouts and operation-level diagnostics.
+- [x] Track loaded island chunks as a metric.
 
 ### Acceptance tests
 
-- [ ] Offline island retains no tickets or repeating tasks.
-- [ ] Two activity reasons share tickets and release only after both complete.
-- [ ] Failed chunk preparation releases already-acquired tickets.
-- [ ] Shutdown releases all plugin tickets.
-- [ ] World effects are dispatched to every owning region without cross-thread mutable state.
+- [x] Offline island retains no tickets or repeating tasks.
+- [x] Two activity reasons share tickets and release only after both complete.
+- [x] Failed chunk preparation releases already-acquired tickets.
+- [x] Shutdown releases all plugin tickets.
+- [x] World effects are dispatched to every owning region without cross-thread mutable state.
 
 ## Milestone 5 — Island world-preparation ports (`P0`)
 
@@ -931,7 +936,7 @@ Goal: extensions add behavior without mutating internal aggregates.
 
 - [ ] Full island aggregate and snapshot/delta model.
 - [ ] Membership and role domain.
-- [ ] Runtime/chunk lifecycle manager.
+- [x] Runtime/chunk lifecycle manager.
 - [ ] Creation/reset/delete/migration coordinators.
 - [ ] Magic Block and content engine.
 - [ ] Counters, variables, upgrades, phases, and requirements.
@@ -943,7 +948,7 @@ Goal: extensions add behavior without mutating internal aggregates.
 - [x] Installable composition root and plugin metadata.
 - [x] Typed config bootstrap.
 - [x] World provisioning at startup.
-- [ ] Chunk ticket adapter.
+- [x] Chunk ticket adapter.
 - [ ] Commands and messages.
 - [ ] Teleport and entity adapters.
 - [ ] Gameplay listeners using protection/application services only.
@@ -1122,7 +1127,7 @@ design change:
    - rebuild locator;
    - run recovery;
    - safe shutdown.
-5. `[ ] feat(core): add chunk activity and preparation contracts`
+5. `[x] feat(core): add chunk activity and preparation contracts`
    - reference-counted reasons;
    - ticket ownership;
    - region-dispatched preparation.
