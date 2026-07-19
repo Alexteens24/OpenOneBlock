@@ -1,5 +1,6 @@
 package dev.openoneblock.core.island;
 
+import dev.openoneblock.api.event.IslandCreatedEvent;
 import dev.openoneblock.api.id.NamespacedId;
 import dev.openoneblock.api.island.IslandLifecycleState;
 import dev.openoneblock.core.execution.IslandExecutionLanes;
@@ -46,6 +47,8 @@ public final class CreateIslandService {
   private final int maximumYExclusive;
   private final WorldPreparationCoordinator preparation;
   private final IslandCleanup cleanup;
+  private final IslandOwnerTeleporter ownerTeleporter;
+  private final IslandCreatedEventPublisher events;
   private final Clock clock;
 
   /**
@@ -62,6 +65,8 @@ public final class CreateIslandService {
    * @param maximumYExclusive exclusive configured preparation height
    * @param preparation durable world preparation coordinator
    * @param cleanup verified bounded cleanup provider
+   * @param ownerTeleporter interactive owner teleport provider
+   * @param events post-commit public event publisher
    * @param clock application clock
    */
   public CreateIslandService(
@@ -76,6 +81,8 @@ public final class CreateIslandService {
       int maximumYExclusive,
       WorldPreparationCoordinator preparation,
       IslandCleanup cleanup,
+      IslandOwnerTeleporter ownerTeleporter,
+      IslandCreatedEventPublisher events,
       Clock clock) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.lanes = Objects.requireNonNull(lanes, "lanes");
@@ -95,6 +102,8 @@ public final class CreateIslandService {
     this.maximumYExclusive = maximumYExclusive;
     this.preparation = Objects.requireNonNull(preparation, "preparation");
     this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
+    this.ownerTeleporter = Objects.requireNonNull(ownerTeleporter, "ownerTeleporter");
+    this.events = Objects.requireNonNull(events, "events");
     this.clock = Objects.requireNonNull(clock, "clock");
   }
 
@@ -132,7 +141,7 @@ public final class CreateIslandService {
             geometry.configuration().maximumBorder(),
             context,
             submittedAt);
-    return submit(request);
+    return submit(request, false);
   }
 
   /**
@@ -143,7 +152,7 @@ public final class CreateIslandService {
    */
   public CompletionStage<CreateIslandResult> resume(IslandCreationRequest request) {
     Objects.requireNonNull(request, "request");
-    return submit(request);
+    return submit(request, true);
   }
 
   /**
@@ -164,7 +173,8 @@ public final class CreateIslandService {
             });
   }
 
-  private CompletionStage<CreateIslandResult> submit(IslandCreationRequest request) {
+  private CompletionStage<CreateIslandResult> submit(
+      IslandCreationRequest request, boolean recovery) {
     IslandOperationRequest laneRequest =
         new IslandOperationRequest(
             request.islandId(),
@@ -173,7 +183,7 @@ public final class CreateIslandService {
             request.requestedAt(),
             IslandOperationClass.LOCKING);
     LaneSubmission<CreateIslandResult> submission =
-        lanes.submit(laneRequest, () -> createInLane(request));
+        lanes.submit(laneRequest, () -> createInLane(request, recovery));
     return switch (submission) {
       case LaneSubmission.Accepted<CreateIslandResult> accepted -> accepted.completion();
       case LaneSubmission.Rejected<CreateIslandResult> rejected ->
@@ -181,7 +191,8 @@ public final class CreateIslandService {
     };
   }
 
-  private CompletionStage<CreateIslandResult> createInLane(IslandCreationRequest request) {
+  private CompletionStage<CreateIslandResult> createInLane(
+      IslandCreationRequest request, boolean recovery) {
     WorldProjection world;
     GridGeometry geometry;
     try {
@@ -202,14 +213,15 @@ public final class CreateIslandService {
     }
     return repository
         .createAllocation(request)
-        .thenCompose(snapshot -> beginOrResume(snapshot, request, world, geometry));
+        .thenCompose(snapshot -> beginOrResume(snapshot, request, world, geometry, recovery));
   }
 
   private CompletionStage<CreateIslandResult> beginOrResume(
       IslandAggregateSnapshot snapshot,
       IslandCreationRequest request,
       WorldProjection world,
-      GridGeometry geometry) {
+      GridGeometry geometry,
+      boolean recovery) {
     if (snapshot.lifecycleState() == IslandLifecycleState.ACTIVE) {
       return CompletableFuture.completedFuture(new CreateIslandResult(snapshot, true));
     }
@@ -236,14 +248,16 @@ public final class CreateIslandService {
       return CompletableFuture.failedFuture(
           new IllegalStateException("creation operation is not in a resumable lifecycle state"));
     }
-    return creating.thenCompose(current -> retainAndPrepare(current, request, world, geometry));
+    return creating.thenCompose(
+        current -> retainAndPrepare(current, request, world, geometry, recovery));
   }
 
   private CompletionStage<CreateIslandResult> retainAndPrepare(
       IslandAggregateSnapshot creating,
       IslandCreationRequest request,
       WorldProjection world,
-      GridGeometry geometry) {
+      GridGeometry geometry,
+      boolean recovery) {
     var slot = creating.primarySlot().orElseThrow();
     var reserved = geometry.reservedRegion(slot.gridPosition());
     IslandRuntimeHeader header =
@@ -256,7 +270,8 @@ public final class CreateIslandService {
               if (failure != null) {
                 return abortBeforeWorldAndFail(creating, request, unwrap(failure));
               }
-              return withLease(lease, () -> prepareAndActivate(creating, request, world, geometry));
+              return withLease(
+                  lease, () -> prepareAndActivate(creating, request, world, geometry, recovery));
             })
         .thenCompose(Function.identity());
   }
@@ -265,7 +280,8 @@ public final class CreateIslandService {
       IslandAggregateSnapshot creating,
       IslandCreationRequest request,
       WorldProjection world,
-      GridGeometry geometry) {
+      GridGeometry geometry,
+      boolean recovery) {
     IslandCreationContext context = request.context();
     IslandWorldPreparationPlan plan =
         new MinimalStarterPreparationPlanFactory(context.starterBlockId(), context.magicBlockY())
@@ -312,8 +328,60 @@ public final class CreateIslandService {
                       clock.instant());
               return repository
                   .activateCreation(activation)
-                  .thenApply(active -> new CreateIslandResult(active, false));
+                  .thenCompose(
+                      active -> deliverPostActivation(active, request, spawn.spawn(), recovery));
             });
+  }
+
+  private CompletionStage<CreateIslandResult> deliverPostActivation(
+      IslandAggregateSnapshot active,
+      IslandCreationRequest request,
+      dev.openoneblock.core.world.WorldSpawnPosition spawn,
+      boolean recovery) {
+    CreateIslandResult result = new CreateIslandResult(active, false);
+    CompletionStage<Void> teleport =
+        recovery ? CompletableFuture.completedFuture(null) : invokeTeleport(request, spawn);
+    return teleport
+        .handle((ignored, failure) -> unwrap(failure))
+        .thenCompose(
+            teleportFailure ->
+                invokeEvent(request, recovery)
+                    .handle(
+                        (ignored, eventFailure) -> {
+                          Throwable combined = combine(teleportFailure, unwrap(eventFailure));
+                          if (combined != null) {
+                            throw new CompletionException(
+                                new IslandPostActivationDeliveryException(result, combined));
+                          }
+                          return result;
+                        }));
+  }
+
+  private CompletionStage<Void> invokeTeleport(
+      IslandCreationRequest request, dev.openoneblock.core.world.WorldSpawnPosition destination) {
+    try {
+      return Objects.requireNonNull(
+          ownerTeleporter.teleport(request.ownerId(), destination, request.operationId()),
+          "owner teleport completion");
+    } catch (Throwable failure) {
+      return CompletableFuture.failedFuture(failure);
+    }
+  }
+
+  private CompletionStage<Void> invokeEvent(IslandCreationRequest request, boolean recovery) {
+    IslandCreatedEvent event =
+        new IslandCreatedEvent(
+            request.islandId(),
+            request.ownerId(),
+            request.operationId(),
+            request.context().primaryWorldId(),
+            clock.instant(),
+            recovery);
+    try {
+      return Objects.requireNonNull(events.publish(event), "event publication completion");
+    } catch (Throwable failure) {
+      return CompletableFuture.failedFuture(failure);
+    }
   }
 
   private CompletionStage<CreateIslandResult> handlePreparationFailure(
@@ -479,5 +547,15 @@ public final class CreateIslandService {
       current = current.getCause();
     }
     return current;
+  }
+
+  private static Throwable combine(Throwable first, Throwable second) {
+    if (first == null) {
+      return second;
+    }
+    if (second != null && second != first) {
+      first.addSuppressed(second);
+    }
+    return first;
   }
 }

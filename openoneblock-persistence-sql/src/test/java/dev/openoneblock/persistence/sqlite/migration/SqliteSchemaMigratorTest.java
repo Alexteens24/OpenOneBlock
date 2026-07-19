@@ -26,7 +26,7 @@ class SqliteSchemaMigratorTest {
     migrator.migrate();
     migrator.migrate();
 
-    assertEquals(6, migrator.currentVersion());
+    assertEquals(7, migrator.currentVersion());
     try (Connection connection = factory.open();
         Statement statement = connection.createStatement()) {
       try (ResultSet result = statement.executeQuery("PRAGMA journal_mode")) {
@@ -44,11 +44,11 @@ class SqliteSchemaMigratorTest {
                     'islands', 'island_memberships', 'world_projections',
                     'world_projection_repairs', 'world_effect_receipts',
                     'island_creation_contexts', 'island_spawn_points',
-                    'island_progression', 'magic_blocks'
+                    'island_progression', 'magic_blocks', 'counters', 'typed_variables'
                 )
               """)) {
         assertTrue(result.next());
-        assertEquals(13, result.getInt(1));
+        assertEquals(15, result.getInt(1));
       }
     }
   }
@@ -65,7 +65,7 @@ class SqliteSchemaMigratorTest {
     }
 
     assertThrows(SqlitePersistenceException.class, migrator::migrate);
-    assertEquals(6, migrator.currentVersion());
+    assertEquals(7, migrator.currentVersion());
   }
 
   @Test
@@ -87,6 +87,39 @@ class SqliteSchemaMigratorTest {
                 "SELECT COUNT(*) FROM sqlite_master WHERE name = 'should_rollback'")) {
       assertTrue(result.next());
       assertEquals(0, result.getInt(1));
+    }
+  }
+
+  @Test
+  void typedVariableSchemaAcceptsExactlyOneValueColumn() throws Exception {
+    SqliteConnectionFactory factory = factory("typed-variables.db");
+    new SqliteSchemaMigrator(factory).migrate();
+    try (Connection connection = factory.open();
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          """
+          INSERT INTO typed_variables (
+              scope_type, scope_id, variable_id, value_type,
+              duration_millis, version, created_at, updated_at
+          ) VALUES (
+              'ISLAND', 'island-1', 'server:cooldown', 'DURATION',
+              5000, 0, '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+          )
+          """);
+
+      assertThrows(
+          java.sql.SQLException.class,
+          () ->
+              statement.executeUpdate(
+                  """
+                  INSERT INTO typed_variables (
+                      scope_type, scope_id, variable_id, value_type,
+                      integer_value, string_value, version, created_at, updated_at
+                  ) VALUES (
+                      'ISLAND', 'island-1', 'server:invalid', 'INTEGER',
+                      1, 'also-set', 0, '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+                  )
+                  """));
     }
   }
 

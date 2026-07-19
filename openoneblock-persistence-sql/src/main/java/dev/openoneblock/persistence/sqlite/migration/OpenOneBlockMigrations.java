@@ -334,6 +334,85 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX magic_blocks_recovery_state
                 ON magic_blocks (state, updated_at)
+                """)),
+        new SqlMigration(
+            7,
+            "normalized counters and typed variables",
+            List.of(
+                """
+                CREATE TABLE counters (
+                    scope_type TEXT NOT NULL CHECK (
+                        scope_type IN ('PLAYER', 'ISLAND', 'SERVER', 'SEASON', 'SESSION')
+                    ),
+                    scope_id TEXT NOT NULL,
+                    counter_id TEXT NOT NULL,
+                    value INTEGER NOT NULL,
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (scope_type, scope_id, counter_id)
+                )
+                """,
+                """
+                CREATE INDEX counters_scope_lookup
+                ON counters (scope_type, scope_id)
+                """,
+                """
+                CREATE TABLE typed_variables (
+                    scope_type TEXT NOT NULL CHECK (
+                        scope_type IN ('PLAYER', 'ISLAND', 'SERVER', 'SEASON', 'SESSION')
+                    ),
+                    scope_id TEXT NOT NULL,
+                    variable_id TEXT NOT NULL,
+                    value_type TEXT NOT NULL CHECK (
+                        value_type IN (
+                            'INTEGER', 'DECIMAL', 'BOOLEAN', 'STRING',
+                            'TIMESTAMP', 'DURATION'
+                        )
+                    ),
+                    integer_value INTEGER,
+                    decimal_value TEXT,
+                    boolean_value INTEGER CHECK (boolean_value IN (0, 1)),
+                    string_value TEXT,
+                    timestamp_value TEXT,
+                    duration_millis INTEGER CHECK (
+                        duration_millis IS NULL OR duration_millis >= 0
+                    ),
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (scope_type, scope_id, variable_id),
+                    CHECK (
+                        (value_type = 'INTEGER' AND integer_value IS NOT NULL
+                            AND decimal_value IS NULL AND boolean_value IS NULL
+                            AND string_value IS NULL AND timestamp_value IS NULL
+                            AND duration_millis IS NULL)
+                        OR (value_type = 'DECIMAL' AND integer_value IS NULL
+                            AND decimal_value IS NOT NULL AND boolean_value IS NULL
+                            AND string_value IS NULL AND timestamp_value IS NULL
+                            AND duration_millis IS NULL)
+                        OR (value_type = 'BOOLEAN' AND integer_value IS NULL
+                            AND decimal_value IS NULL AND boolean_value IS NOT NULL
+                            AND string_value IS NULL AND timestamp_value IS NULL
+                            AND duration_millis IS NULL)
+                        OR (value_type = 'STRING' AND integer_value IS NULL
+                            AND decimal_value IS NULL AND boolean_value IS NULL
+                            AND string_value IS NOT NULL AND timestamp_value IS NULL
+                            AND duration_millis IS NULL)
+                        OR (value_type = 'TIMESTAMP' AND integer_value IS NULL
+                            AND decimal_value IS NULL AND boolean_value IS NULL
+                            AND string_value IS NULL AND timestamp_value IS NOT NULL
+                            AND duration_millis IS NULL)
+                        OR (value_type = 'DURATION' AND integer_value IS NULL
+                            AND decimal_value IS NULL AND boolean_value IS NULL
+                            AND string_value IS NULL AND timestamp_value IS NULL
+                            AND duration_millis IS NOT NULL)
+                    )
+                )
+                """,
+                """
+                CREATE INDEX typed_variables_scope_lookup
+                ON typed_variables (scope_type, scope_id)
                 """)));
   }
 }

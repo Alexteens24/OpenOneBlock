@@ -431,6 +431,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
     verifyRequiredEffects(connection, request);
     insertSpawn(connection, request);
     insertProgression(connection, request);
+    insertInitialCounters(connection, request);
     insertMagicBlock(connection, request);
     updateActivationIsland(connection, request, targetIslandVersion);
     updateActivationSlot(connection, request, slot, targetSlotVersion);
@@ -1136,6 +1137,29 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
     }
   }
 
+  private static void insertInitialCounters(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO counters (
+                scope_type, scope_id, counter_id, value, version, created_at, updated_at
+            ) VALUES ('ISLAND', ?, ?, 0, 0, ?, ?)
+            """)) {
+      for (String counterId : List.of("openoneblock:total_breaks", "openoneblock:phase_breaks")) {
+        statement.setString(1, request.islandId().toString());
+        statement.setString(2, counterId);
+        statement.setString(3, request.activatedAt().toString());
+        statement.setString(4, request.activatedAt().toString());
+        statement.addBatch();
+      }
+      int[] counts = statement.executeBatch();
+      if (counts.length != 2) {
+        throw new SQLException("Initial creation counters were not inserted completely");
+      }
+    }
+  }
+
   private static void updateActivationIsland(
       Connection connection, IslandCreationActivationRequest request, long targetVersion)
       throws SQLException {
@@ -1221,6 +1245,11 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
                    AND primary_spawn = 1) AS spawn_count,
                 (SELECT COUNT(*) FROM island_progression
                  WHERE island_id = ? AND current_phase_id = ?) AS progression_count,
+                (SELECT COUNT(*) FROM counters
+                 WHERE scope_type = 'ISLAND' AND scope_id = ?
+                   AND counter_id IN (
+                     'openoneblock:total_breaks', 'openoneblock:phase_breaks'
+                   ) AND value = 0 AND version = 0) AS counter_count,
                 (SELECT COUNT(*) FROM magic_blocks
                  WHERE island_id = ? AND magic_block_id = ? AND world_id = ?
                    AND block_x = ? AND block_y = ? AND block_z = ?
@@ -1241,6 +1270,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       statement.setString(parameter++, request.islandId().toString());
       statement.setString(parameter++, request.initialPhaseId().toString());
       statement.setString(parameter++, request.islandId().toString());
+      statement.setString(parameter++, request.islandId().toString());
       statement.setString(parameter++, magic.magicBlockId().toString());
       statement.setString(parameter++, magicPosition.worldId().toString());
       statement.setInt(parameter++, magicPosition.x());
@@ -1252,6 +1282,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
         if (!result.next()
             || result.getInt("spawn_count") != 1
             || result.getInt("progression_count") != 1
+            || result.getInt("counter_count") != 2
             || result.getInt("magic_count") != 1) {
           throw new IslandCreationOperationConflictException(
               "Completed creation replay does not match activation projections");

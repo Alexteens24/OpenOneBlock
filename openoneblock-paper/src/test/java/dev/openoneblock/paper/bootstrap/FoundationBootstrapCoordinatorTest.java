@@ -211,6 +211,8 @@ class FoundationBootstrapCoordinatorTest {
                     new dev.openoneblock.core.world.IslandCleanup.Result(
                         dev.openoneblock.core.world.IslandCleanup.Status.VERIFIED_CLEAN,
                         "test cleanup verified")),
+            (ownerId, destination, operationId) -> CompletableFuture.completedFuture(null),
+            event -> CompletableFuture.completedFuture(null),
             java.time.Clock.systemUTC());
     return new FoundationRuntime(
         configuration,

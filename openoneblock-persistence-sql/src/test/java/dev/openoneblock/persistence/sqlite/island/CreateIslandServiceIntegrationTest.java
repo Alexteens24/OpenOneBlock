@@ -30,6 +30,7 @@ import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
+import dev.openoneblock.core.island.IslandPostActivationDeliveryException;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjection;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
@@ -52,6 +53,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -92,8 +94,12 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(0, context.runtimes().loadedChunkCount());
     assertEquals(1, count(context.factory(), "island_spawn_points"));
     assertEquals(1, count(context.factory(), "island_progression"));
+    assertEquals(2, count(context.factory(), "counters"));
     assertEquals(1, count(context.factory(), "magic_blocks"));
     assertEquals(3, count(context.factory(), "world_effect_receipts"));
+    assertEquals(1, context.delivery().teleports.get());
+    assertEquals(1, context.delivery().events.size());
+    assertEquals(false, context.delivery().events.getFirst().recovered());
   }
 
   @Test
@@ -132,6 +138,8 @@ class CreateIslandServiceIntegrationTest {
       assertEquals(IslandLifecycleState.ACTIVE, result.island().lifecycleState());
       assertEquals(3, restartedWorld.executions.get());
       assertEquals(1, restartedTickets.releases.get());
+      assertEquals(0, restarted.delivery().teleports.get());
+      assertEquals(true, restarted.delivery().events.getFirst().recovered());
       assertTrue(await(restarted.repository().findPendingCreationRequests()).isEmpty());
     }
   }
@@ -366,6 +374,40 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(0, count(context.factory(), "islands"));
   }
 
+  @Test
+  void deliveryFailurePreservesActiveIslandAndReplayNeverRedelivers() throws Exception {
+    RecordingDelivery delivery = new RecordingDelivery();
+    delivery.failTeleport = true;
+    TestContext context =
+        context(
+            "delivery-failure.db",
+            new RecordingWorld(),
+            new RecordingTickets(),
+            new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN),
+            delivery);
+    CreateIslandCommand command = command(player("58200765-072a-4fd4-8d15-93f7306371c3"));
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () -> context.service().create(command).toCompletableFuture().join());
+
+    IslandPostActivationDeliveryException deliveryFailure =
+        assertInstanceOf(IslandPostActivationDeliveryException.class, failure.getCause());
+    assertEquals(IslandLifecycleState.ACTIVE, deliveryFailure.result().island().lifecycleState());
+    assertEquals(
+        IslandLifecycleState.ACTIVE,
+        await(context.repository().findById(command.islandId())).orElseThrow().lifecycleState());
+    assertEquals(1, delivery.teleports.get());
+    assertEquals(1, delivery.events.size());
+
+    delivery.failTeleport = false;
+    CreateIslandResult replay = await(context.service().create(command));
+    assertTrue(replay.replay());
+    assertEquals(1, delivery.teleports.get());
+    assertEquals(1, delivery.events.size());
+  }
+
   private TestContext context(String databaseName, RecordingWorld world, RecordingTickets tickets) {
     return context(
         databaseName, world, tickets, new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN));
@@ -376,6 +418,15 @@ class CreateIslandServiceIntegrationTest {
       RecordingWorld world,
       RecordingTickets tickets,
       RecordingCleanup cleanup) {
+    return context(databaseName, world, tickets, cleanup, new RecordingDelivery());
+  }
+
+  private TestContext context(
+      String databaseName,
+      RecordingWorld world,
+      RecordingTickets tickets,
+      RecordingCleanup cleanup,
+      RecordingDelivery delivery) {
     SqliteConnectionFactory factory =
         new SqliteConnectionFactory(temporaryDirectory.resolve(databaseName), 100);
     new SqliteSchemaMigrator(factory).migrate();
@@ -404,8 +455,10 @@ class CreateIslandServiceIntegrationTest {
             320,
             preparation,
             cleanup,
+            delivery::teleport,
+            delivery::publish,
             Clock.fixed(NOW, ZoneOffset.UTC));
-    return new TestContext(factory, repository, lanes, runtimes, service);
+    return new TestContext(factory, repository, lanes, runtimes, service, delivery);
   }
 
   private static CreateIslandCommand command(PlayerId owner) {
@@ -452,6 +505,7 @@ class CreateIslandServiceIntegrationTest {
             "islands",
             "island_spawn_points",
             "island_progression",
+            "counters",
             "magic_blocks",
             "world_effect_receipts")
         .contains(table)) {
@@ -470,7 +524,8 @@ class CreateIslandServiceIntegrationTest {
       IslandCreationRepository repository,
       IslandExecutionLanes lanes,
       IslandRuntimeManager runtimes,
-      CreateIslandService service) {}
+      CreateIslandService service,
+      RecordingDelivery delivery) {}
 
   private static final class RecordingWorld implements IslandWorldPreparation {
     private final AtomicInteger executions = new AtomicInteger();
@@ -544,6 +599,28 @@ class CreateIslandServiceIntegrationTest {
       calls.incrementAndGet();
       return CompletableFuture.completedFuture(
           new Result(status, "test cleanup " + status.name().toLowerCase()));
+    }
+  }
+
+  private static final class RecordingDelivery {
+    private final AtomicInteger teleports = new AtomicInteger();
+    private final List<dev.openoneblock.api.event.IslandCreatedEvent> events = new ArrayList<>();
+    private boolean failTeleport;
+
+    private CompletionStage<Void> teleport(
+        PlayerId ownerId,
+        dev.openoneblock.core.world.WorldSpawnPosition destination,
+        OperationId operationId) {
+      teleports.incrementAndGet();
+      return failTeleport
+          ? CompletableFuture.failedFuture(
+              new IllegalStateException("intentional teleport failure"))
+          : CompletableFuture.completedFuture(null);
+    }
+
+    private CompletionStage<Void> publish(dev.openoneblock.api.event.IslandCreatedEvent event) {
+      events.add(event);
+      return CompletableFuture.completedFuture(null);
     }
   }
 }

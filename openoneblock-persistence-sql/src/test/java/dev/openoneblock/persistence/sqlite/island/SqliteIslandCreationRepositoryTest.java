@@ -150,6 +150,7 @@ class SqliteIslandCreationRepositoryTest {
     assertEquals(1, count(context.factory(), "slots"));
     assertEquals(1, count(context.factory(), "island_spawn_points"));
     assertEquals(1, count(context.factory(), "island_progression"));
+    assertEquals(2, count(context.factory(), "counters"));
     assertEquals(1, count(context.factory(), "magic_blocks"));
   }
 
@@ -462,6 +463,7 @@ class SqliteIslandCreationRepositoryTest {
             "island_creation_contexts",
             "island_spawn_points",
             "island_progression",
+            "counters",
             "magic_blocks")
         .contains(table)) {
       throw new IllegalArgumentException("unexpected table");

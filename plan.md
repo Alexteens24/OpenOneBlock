@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 171 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 177 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -123,20 +123,26 @@ register `/oneblock` commands or gameplay listeners.
 - [x] Creation failure policy with durable pre-dispatch abort, `BROKEN/CLEANING` intent, verified
   native block/entity cleanup, safe locator removal, slot reuse after clean evidence, and mandatory
   quarantine after failed or ambiguous cleanup.
+- [x] Normalized V7 counter and typed-variable persistence with constrained scopes/types, initial
+  island break counters, optimistic versions, and database-enforced value-shape invariants.
+- [x] Post-activation delivery that teleports an online owner only for interactive creation, publishes
+  an immutable event for interactive and recovered activation, never repeats delivery on operation
+  replay, and cannot roll back an already committed `ACTIVE` island.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
 ### Partially implemented areas
 
-- [~] Island creation: success, cleanup, quarantine, and stored failure replay are complete;
-  post-activation teleport/event publication and normalized initial counters/variables remain.
+- [x] Island creation service: success, recovery, cleanup, quarantine, stored replay, initial
+  projections, owner teleport, and immutable event publication are complete.
 - [x] Crash recovery for the current creation pipeline resumes allocation, preparation, and cleanup;
   it activates only from verified effects, releases only after verified clean evidence, and otherwise
   keeps the slot quarantined.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
-- [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, and
-  the first Magic Block are persisted; broader members, upgrades, counters, and variables remain.
+- [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, first
+  Magic Block, normalized counters, and typed-variable storage are persisted; broader team roles,
+  upgrades, and aggregate mutation services remain.
 
 ## Global definition of done
 
@@ -384,13 +390,12 @@ Goal: complete `/ob create` semantics from membership validation through activat
 - [x] Clear residue when policy requires it.
 - [x] Apply starter content through the preparation port.
 - [x] Create the first Magic Block record and world block.
-- [~] Persist spawn point, phase, counters, and variables. Spawn/phase are persisted atomically;
-  normalized counters and typed variables remain in V7.
+- [x] Persist spawn point, phase, initial counters, and an empty typed-variable set atomically.
 - [x] Verify border, spawn, Magic Block, and slot ownership.
 - [x] Transition island and slot to `ACTIVE` atomically.
 - [x] Publish locator state only after commit.
-- [ ] Teleport the owner only after activation.
-- [ ] Publish immutable `IslandCreatedEvent` after successful activation.
+- [x] Teleport the online owner only after interactive activation.
+- [x] Publish immutable `IslandCreatedEvent` after interactive or recovered activation.
 - [x] Return stored outcome on duplicate operation ID.
 
 ### Failure policy
@@ -404,8 +409,8 @@ Goal: complete `/ob create` semantics from membership validation through activat
 ### Acceptance tests
 
 - [x] Two simultaneous creates for one player yield one active membership and no leaked slot.
-- [~] Duplicate operation replay returns the same island and skips world work; teleport/event adapters
-  do not exist yet.
+- [x] Duplicate operation replay returns the same island and skips world work and post-activation
+  delivery.
 - [x] Restart at every currently durable creation phase resumes the correct next step.
 - [x] Paste/place failure cannot activate the island.
 - [x] Cleanup uncertainty quarantines the slot.
@@ -1032,7 +1037,7 @@ Migration numbering must remain append-only and checksummed.
 - [x] V5: operation request fingerprints/outcomes, durable creation replay context, island spawn
   points, initial progression, and lifecycle lock metadata.
 - [x] V6: Magic Blocks and sequence uniqueness.
-- [ ] V7: normalized counters and typed variables.
+- [x] V7: normalized counters and typed variables.
 - [ ] V8: phases, upgrades, and progression state.
 - [ ] V9: rule execution policies and cooldown state.
 - [ ] V10: durable scheduled actions.
@@ -1063,7 +1068,7 @@ Migration numbering must remain append-only and checksummed.
 - Verify no world mutation executes before ownership dispatch.
 - Verify void-world creator options and existing-world fail-closed checks.
 - Latest manual smoke: Paper 1.21.11 build 132 on Java 21, an existing foundation database migrated
-  from V4 through V6, restart reused the persisted world projection, reached `READY`, and bounded
+  from V6 through V7, restart reused the persisted world projection, reached `READY`, and bounded
   shutdown completed without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 

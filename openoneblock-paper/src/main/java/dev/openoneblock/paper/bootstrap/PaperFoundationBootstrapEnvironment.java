@@ -21,6 +21,8 @@ import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.ProvisionedWorldHeight;
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
+import dev.openoneblock.paper.event.BukkitIslandCreatedEventPublisher;
+import dev.openoneblock.paper.island.PaperIslandOwnerTeleporter;
 import dev.openoneblock.paper.runtime.PaperIslandChunkTicketController;
 import dev.openoneblock.paper.world.BukkitVoidWorldFactory;
 import dev.openoneblock.paper.world.PaperIslandCleanup;
@@ -198,6 +200,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       maximumYExclusive,
                       preparationCoordinator,
                       new PaperIslandCleanup(plugin, plugin.getServer(), scheduler),
+                      new PaperIslandOwnerTeleporter(plugin, plugin.getServer()),
+                      new BukkitIslandCreatedEventPublisher(plugin.getServer(), scheduler),
                       clock);
               FoundationRuntime recovered =
                   new FoundationRuntime(
