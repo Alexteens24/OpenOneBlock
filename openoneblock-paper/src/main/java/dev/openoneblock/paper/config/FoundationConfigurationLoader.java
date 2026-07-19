@@ -14,6 +14,7 @@ import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.MessageSett
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.ObservabilitySettings;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.OperationSettings;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.RoleSettings;
+import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.TeamSettings;
 import dev.openoneblock.paper.world.SharedWorldSpec;
 import dev.openoneblock.protection.ProtectionAction;
 import java.io.IOException;
@@ -43,7 +44,6 @@ import org.yaml.snakeyaml.error.YAMLException;
 /** Loads all foundation YAML files into one fully validated immutable candidate. */
 public final class FoundationConfigurationLoader {
   private static final Set<String> KNOWN_ROLE_PERMISSIONS = knownRolePermissions();
-  private static final int SCHEMA_VERSION = 1;
 
   /** Creates a stateless strict foundation configuration loader. */
   public FoundationConfigurationLoader() {}
@@ -93,6 +93,7 @@ public final class FoundationConfigurationLoader {
         worldCandidate.height(),
         worldCandidate.worlds(),
         islandCandidate.operations(),
+        islandCandidate.team(),
         islandCandidate.magicBlock(),
         islandCandidate.defaults(),
         roles,
@@ -246,7 +247,7 @@ public final class FoundationConfigurationLoader {
 
   private static IslandCandidate parseIslands(
       StrictConfigNode root, List<ConfigurationProblem> problems) {
-    root.rejectUnknown("schema-version", "operations", "magic-block", "defaults");
+    root.rejectUnknown("schema-version", "operations", "team", "magic-block", "defaults");
     StrictConfigNode operations = root.mapping("operations");
     operations.rejectUnknown(
         "creation-timeout-seconds",
@@ -261,6 +262,13 @@ public final class FoundationConfigurationLoader {
     positive(operations, "reset-timeout-seconds", reset, true);
     positive(operations, "delete-timeout-seconds", delete, true);
     positive(operations, "quarantine-cleanup-failures", cleanupFailures, true);
+
+    StrictConfigNode team = root.mapping("team");
+    team.rejectUnknown("maximum-size", "invitation-expiry-seconds");
+    int maximumTeamSize = team.integer("maximum-size");
+    long invitationExpirySeconds = team.longValue("invitation-expiry-seconds");
+    positive(team, "maximum-size", maximumTeamSize, true);
+    positive(team, "invitation-expiry-seconds", invitationExpirySeconds, true);
 
     StrictConfigNode magic = root.mapping("magic-block");
     magic.rejectUnknown("starter-material", "regeneration-delay-ticks");
@@ -281,6 +289,7 @@ public final class FoundationConfigurationLoader {
     NamespacedId profileId = parseNamespaced(defaults, "profile-id", problems);
     return new IslandCandidate(
         new OperationSettings(creation, reset, delete, cleanupFailures),
+        new TeamSettings(maximumTeamSize, invitationExpirySeconds),
         new MagicBlockSettings(starterMaterial, regenerationDelay),
         new DefaultProgression(phaseId, profileId));
   }
@@ -293,12 +302,14 @@ public final class FoundationConfigurationLoader {
     for (Map.Entry<String, StrictConfigNode> entry : nodes.entrySet()) {
       String role = entry.getKey();
       StrictConfigNode node = entry.getValue();
-      node.rejectUnknown("inherits", "permissions");
+      node.rejectUnknown("authority", "inherits", "permissions");
       if (!role.matches("[a-z][a-z0-9_-]*")) {
         node.constraint("inherits", "safe lowercase role key", role, "rename this role");
       }
       List<String> inheritedRoles = node.stringList("inherits");
       List<String> permissions = node.stringList("permissions");
+      int authority = node.integer("authority");
+      positive(node, "authority", authority, false);
       for (String permission : permissions) {
         if (!KNOWN_ROLE_PERMISSIONS.contains(permission)) {
           node.constraint(
@@ -308,7 +319,7 @@ public final class FoundationConfigurationLoader {
               "fix the typo or register support before using this permission");
         }
       }
-      roles.put(role, new RoleSettings(inheritedRoles, new LinkedHashSet<>(permissions)));
+      roles.put(role, new RoleSettings(authority, inheritedRoles, new LinkedHashSet<>(permissions)));
     }
     for (Map.Entry<String, RoleSettings> entry : roles.entrySet()) {
       for (String inherited : entry.getValue().inherits()) {
@@ -324,7 +335,47 @@ public final class FoundationConfigurationLoader {
       }
     }
     detectRoleCycles(roles, nodes, problems);
+    for (String required : List.of("owner", "visitor", "banned")) {
+      if (!roles.containsKey(required)) {
+        root.constraint(
+            "roles",
+            "required owner, visitor, and banned roles",
+            roles.keySet(),
+            "restore the missing " + required + " role");
+      }
+    }
+    RoleSettings owner = roles.get("owner");
+    if (owner != null && !hasWildcard("owner", roles, new LinkedHashSet<>())) {
+      nodes.get("owner").constraint(
+          "permissions",
+          "effective '*' permission",
+          owner.permissions(),
+          "restore owner wildcard permission");
+    }
+    if (owner != null
+        && roles.entrySet().stream()
+            .anyMatch(entry -> !entry.getKey().equals("owner") && entry.getValue().authority() >= owner.authority())) {
+      nodes.get("owner").constraint(
+          "authority",
+          "strictly greater than every other role",
+          owner.authority(),
+          "raise owner authority or lower the conflicting role");
+    }
     return Map.copyOf(roles);
+  }
+
+  private static boolean hasWildcard(
+      String role, Map<String, RoleSettings> roles, Set<String> visiting) {
+    RoleSettings settings = roles.get(role);
+    if (settings == null || !visiting.add(role)) {
+      return false;
+    }
+    boolean wildcard =
+        settings.permissions().contains("*")
+            || settings.inherits().stream()
+                .anyMatch(parent -> hasWildcard(parent, roles, visiting));
+    visiting.remove(role);
+    return wildcard;
   }
 
   private static Set<String> knownRolePermissions() {
@@ -386,11 +437,13 @@ public final class FoundationConfigurationLoader {
   }
 
   private static void validateSchema(StrictConfigNode root, String file) {
+    int supportedVersion =
+        file.equals("islands.yml") || file.equals("roles.yml") ? 2 : 1;
     int schemaVersion = root.integer("schema-version");
-    if (schemaVersion != SCHEMA_VERSION) {
+    if (schemaVersion != supportedVersion) {
       root.constraint(
           "schema-version",
-          "supported version " + SCHEMA_VERSION,
+          "supported version " + supportedVersion,
           schemaVersion,
           "run a supported config migration before starting the plugin");
     }
@@ -522,6 +575,7 @@ public final class FoundationConfigurationLoader {
       orderedSections.add(islands);
       for (Map.Entry<String, RoleSettings> entry : new TreeMap<>(roles).entrySet()) {
         orderedSections.add(entry.getKey());
+        orderedSections.add(entry.getValue().authority());
         orderedSections.add(entry.getValue().inherits());
         orderedSections.add(entry.getValue().permissions().stream().sorted().toList());
       }
@@ -543,5 +597,8 @@ public final class FoundationConfigurationLoader {
       GridConfiguration grid, BuildHeight height, List<SharedWorldSpec> worlds) {}
 
   private record IslandCandidate(
-      OperationSettings operations, MagicBlockSettings magicBlock, DefaultProgression defaults) {}
+      OperationSettings operations,
+      TeamSettings team,
+      MagicBlockSettings magicBlock,
+      DefaultProgression defaults) {}
 }

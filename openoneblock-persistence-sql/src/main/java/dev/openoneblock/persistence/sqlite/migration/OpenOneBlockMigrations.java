@@ -539,6 +539,34 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX island_access_records_player_lookup
                 ON island_access_records (player_id, access_state)
+                """)),
+        new SqlMigration(
+            10,
+            "idempotent team mutation receipts",
+            List.of(
+                """
+                CREATE TABLE team_mutation_receipts (
+                    operation_id TEXT PRIMARY KEY REFERENCES operations (operation_id),
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    mutation_kind TEXT NOT NULL CHECK (
+                        mutation_kind IN (
+                            'INVITED', 'INVITATION_ACCEPTED', 'INVITATION_DECLINED',
+                            'KICKED', 'LEFT', 'BANNED', 'UNBANNED', 'PROMOTED',
+                            'DEMOTED', 'TRUSTED', 'UNTRUSTED', 'OWNERSHIP_TRANSFERRED'
+                        )
+                    ),
+                    actor_player_id TEXT NOT NULL,
+                    subject_player_id TEXT NOT NULL,
+                    role_id TEXT,
+                    committed_island_version INTEGER NOT NULL CHECK (
+                        committed_island_version >= 0
+                    ),
+                    committed_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE INDEX team_mutation_receipts_island_version
+                ON team_mutation_receipts (island_id, committed_island_version)
                 """)));
   }
 }

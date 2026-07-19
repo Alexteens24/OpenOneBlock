@@ -38,6 +38,8 @@ class FoundationConfigurationLoaderTest {
     assertEquals("sqlite", first.database().type());
     assertEquals("openoneblock_overworld", first.worlds().getFirst().worldName());
     assertEquals("openoneblock:plains", first.defaults().phaseId().toString());
+    assertEquals(8, first.team().maximumSize());
+    assertEquals(300, first.team().invitationExpirySeconds());
     assertEquals(
         java.util.Set.of(
             "owner", "co_owner", "moderator", "member", "trusted", "visitor", "banned"),
@@ -162,6 +164,26 @@ class FoundationConfigurationLoaderTest {
                     problem.file().equals("roles.yml")
                         && problem.path().endsWith("permissions")
                         && problem.expected().contains("known uppercase island permission")));
+  }
+
+  @Test
+  void atomicReloadKeepsPreviousRolesWhenOwnerWildcardIsRemoved() throws Exception {
+    AtomicConfigurationRegistry registry = new AtomicConfigurationRegistry();
+    ReloadResult.Accepted accepted =
+        assertInstanceOf(ReloadResult.Accepted.class, registry.reload(loader, dataDirectory));
+    replace("roles.yml", "      - '*'", "      - BLOCK_BREAK");
+
+    ReloadResult.Rejected rejected =
+        assertInstanceOf(ReloadResult.Rejected.class, registry.reload(loader, dataDirectory));
+
+    assertSame(accepted.snapshot(), registry.active().orElseThrow());
+    assertTrue(
+        rejected.problems().stream()
+            .anyMatch(
+                problem ->
+                    problem.file().equals("roles.yml")
+                        && problem.path().equals("roles.owner.permissions")
+                        && problem.expected().contains("effective '*'")));
   }
 
   @Test

@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 244 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 252 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -558,23 +558,32 @@ Goal: support configurable island collaboration without hard-coded listener role
 
 - [x] Add durable roles and permissions config registry.
 - [x] Add owner, co-owner, moderator, member, trusted, visitor, and banned defaults.
+- [x] Add configurable role authority and reject peer escalation, self-promotion, and mutation of a
+  higher/equal-authority target even when the actor holds a broad management permission.
 - [x] Separate active membership from visitor/trust/ban access records with a V9 schema that keeps
   invitations, active memberships, and the mutually exclusive trusted/banned projection distinct.
 - [x] Add member repository and immutable `MemberView`.
 - [x] Enforce one active island membership per player in the current SQLite backend.
-- [ ] Implement invite, accept, decline, kick, leave, ban, unban, promote, and demote services.
-- [ ] Implement atomic ownership transfer.
-- [ ] Increment island version for every accepted membership mutation.
-- [ ] Route all membership mutations through the island lane.
-- [ ] Publish immutable membership events after commit.
-- [ ] Add configurable team size and invite expiry.
+- [x] Implement invite, accept, decline, kick, leave, ban, unban, trust, untrust, promote, and
+  demote services with durable SHA-256 idempotency receipts.
+- [x] Implement atomic ownership transfer across the island owner field and both membership rows.
+- [x] Increment island version for every accepted team mutation, including invitation decisions.
+- [x] Route all membership mutations through the island lane for their complete asynchronous work.
+- [x] Publish immutable membership events after SQL commit on Paper's global scheduler, while
+  suppressing duplicate events for replayed operation IDs.
+- [x] Add configurable team size and invite expiry and enforce the compiled policy in the
+  application service before lane admission.
+- [x] Project trusted and banned access records into native protection without treating them as
+  active island memberships.
 
 ### Acceptance tests
 
-- [ ] Concurrent invites/accepts cannot create two active memberships.
-- [ ] Owner cannot leave without transfer or deletion policy.
-- [ ] Transfer updates owner/member rows and version atomically.
-- [ ] Role config reload cannot remove permissions into an ambiguous state.
+- [x] Concurrent accepts from different island lanes cannot create two active memberships; SQLite
+  `BEGIN IMMEDIATE` plus the partial unique membership index permits exactly one winner.
+- [x] Owner cannot leave without transfer or deletion policy.
+- [x] Transfer updates owner/member rows and version atomically.
+- [x] Role config reload cannot remove the owner's effective wildcard, required safety roles, or
+  uniquely highest authority; invalid candidates leave the active snapshot unchanged.
 - [x] No role bypasses lifecycle protection.
 
 ## Milestone 10 — Delete, reset, cleanup, and quarantine (`P0`)
@@ -1120,7 +1129,11 @@ Migration numbering must remain append-only and checksummed.
   asynchronous not-found diagnostics before a clean shutdown. The native-protection artifact then
   restarted the same V8 database on Paper build 132, reached `READY with ... native protection
   active`, registered both listener groups (42 protected event adapters) on the global scheduler, and
-  shut down cleanly without plugin errors.
+  shut down cleanly without plugin errors. The Milestone 9 artifact upgraded the same operator-owned
+  `islands.yml` and `roles.yml` from schema V1 to V2 with verified adjacent backups, restored newly
+  required built-in roles without overwriting existing role permissions, migrated SQLite through
+  team schema V10, rebuilt the team/protection service graph, and reached the same `READY` state on
+  Paper 1.21.11/Java 21 before a bounded shutdown.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

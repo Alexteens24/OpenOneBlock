@@ -25,6 +25,7 @@ import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
+import dev.openoneblock.paper.config.BuiltInConfigurationMigrations;
 import dev.openoneblock.paper.config.ProtectionConfigurationCompiler;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.ProvisionedWorldHeight;
@@ -50,6 +51,11 @@ import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProte
 import dev.openoneblock.persistence.sqlite.protection.SqliteIslandProtectionSnapshotSource;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
 import dev.openoneblock.persistence.sqlite.team.SqliteIslandMemberRepository;
+import dev.openoneblock.persistence.sqlite.team.SqliteIslandInvitationRepository;
+import dev.openoneblock.persistence.sqlite.team.SqliteIslandTeamRepository;
+import dev.openoneblock.core.team.IslandTeamService;
+import dev.openoneblock.core.team.IslandTeamPolicy;
+import dev.openoneblock.paper.event.BukkitIslandMembershipEventPublisher;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldProjectionCatalog;
 import dev.openoneblock.protection.InMemoryIslandProtectionIndex;
@@ -108,6 +114,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
         () -> {
           new DefaultConfigurationInstaller(plugin.getClass().getClassLoader())
               .install(dataDirectory);
+          BuiltInConfigurationMigrations.migrator()
+              .migrate(dataDirectory, BuiltInConfigurationMigrations.targetVersions());
           return new FoundationConfigurationLoader().load(dataDirectory);
         });
   }
@@ -234,6 +242,23 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   new SqliteIslandQueryRepository(activeFactory, activeExecutors.database());
               SqliteIslandMemberRepository memberRepository =
                   new SqliteIslandMemberRepository(activeFactory, activeExecutors.database());
+              SqliteIslandInvitationRepository invitationRepository =
+                  new SqliteIslandInvitationRepository(activeFactory, activeExecutors.database());
+              SqliteIslandTeamRepository teamRepository =
+                  new SqliteIslandTeamRepository(
+                      activeFactory,
+                      islandRoles,
+                      protectionPublisher,
+                      activeExecutors.database());
+              IslandTeamService teamService =
+                  new IslandTeamService(
+                      teamRepository,
+                      lanes,
+                      new BukkitIslandMembershipEventPublisher(plugin.getServer(), scheduler),
+                      new IslandTeamPolicy(
+                          configuration.team().maximumSize(),
+                          java.time.Duration.ofSeconds(
+                              configuration.team().invitationExpirySeconds())));
               IslandHomeService homeService =
                   new IslandHomeService(
                       queryRepository,
@@ -301,6 +326,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       protectionEngine,
                       islandRoles,
                       memberRepository,
+                      invitationRepository,
+                      teamService,
                       repository,
                       lanes,
                       runtimeManager,

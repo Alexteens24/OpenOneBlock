@@ -32,6 +32,8 @@ class SqliteIslandProtectionSnapshotSourceTest {
       PlayerId.of(UUID.fromString("dc8dc150-60bf-45f6-9587-5202f7dc23d7"));
   private static final PlayerId INACTIVE_MEMBER =
       PlayerId.of(UUID.fromString("1cd20dae-292d-4eaf-a47b-b6579376b0e9"));
+  private static final PlayerId TRUSTED = PlayerId.of(UUID.fromString("b47472bf-c7ea-4c39-adf3-21517ad6e8f5"));
+  private static final PlayerId BANNED = PlayerId.of(UUID.fromString("a801d451-ddbe-4e66-b78b-4ee998ea6238"));
   private static final WorldId WORLD =
       WorldId.of(UUID.fromString("749755fb-5364-494f-8a28-7c5c86e01371"));
 
@@ -55,6 +57,8 @@ class SqliteIslandProtectionSnapshotSourceTest {
     insertIsland(factory, active, "ACTIVE", true);
     insertMembership(factory, active, OWNER, "openoneblock:owner", true, true);
     insertMembership(factory, active, INACTIVE_MEMBER, "openoneblock:member", false, false);
+    insertAccess(factory, active, TRUSTED, "TRUSTED", "openoneblock:trusted");
+    insertAccess(factory, active, BANNED, "BANNED", null);
     insertMagicBlock(factory, active);
     insertIsland(factory, IslandId.generate(), "ARCHIVED", false);
     executor = Executors.newSingleThreadExecutor();
@@ -71,7 +75,11 @@ class SqliteIslandProtectionSnapshotSourceTest {
     assertEquals(96, snapshot.currentBorderSize());
     assertEquals(7, snapshot.islandVersion());
     assertEquals(
-        Map.of(OWNER, NamespacedId.parse("openoneblock:owner")), snapshot.activeMemberships());
+        Map.of(
+            OWNER, NamespacedId.parse("openoneblock:owner"),
+            TRUSTED, NamespacedId.parse("openoneblock:trusted"),
+            BANNED, NamespacedId.parse("openoneblock:banned")),
+        snapshot.activeMemberships());
     assertEquals(Set.of(new ProtectionPosition(WORLD, 0, 64, 0)), snapshot.magicBlocks());
   }
 
@@ -160,6 +168,31 @@ class SqliteIslandProtectionSnapshotSourceTest {
       statement.setString(2, WORLD.toString());
       statement.setString(3, NOW.toString());
       statement.setString(4, NOW.toString());
+      assertEquals(1, statement.executeUpdate());
+    }
+  }
+
+  private static void insertAccess(
+      SqliteConnectionFactory factory,
+      IslandId islandId,
+      PlayerId playerId,
+      String state,
+      String role)
+      throws Exception {
+    try (Connection connection = factory.open();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                """
+                INSERT INTO island_access_records (
+                    island_id, player_id, access_state, role_id, version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 0, ?, ?)
+                """)) {
+      statement.setString(1, islandId.toString());
+      statement.setString(2, playerId.toString());
+      statement.setString(3, state);
+      statement.setString(4, role);
+      statement.setString(5, NOW.toString());
+      statement.setString(6, NOW.toString());
       assertEquals(1, statement.executeUpdate());
     }
   }

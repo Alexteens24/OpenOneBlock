@@ -33,6 +33,13 @@ public final class IslandRoleRegistry {
     requireRole(indexed, OWNER);
     requireRole(indexed, VISITOR);
     requireRole(indexed, BANNED);
+    IslandRoleDefinition owner = indexed.get(OWNER);
+    if (!owner.wildcard()
+        || indexed.values().stream()
+            .anyMatch(role -> !role.roleId().equals(OWNER) && role.authority() >= owner.authority())) {
+      throw new IllegalArgumentException(
+          "owner role must grant wildcard permissions and have uniquely highest authority");
+    }
     this.roles = Map.copyOf(indexed);
   }
 
@@ -56,6 +63,13 @@ public final class IslandRoleRegistry {
    */
   public boolean allows(NamespacedId roleId, IslandPermission permission) {
     return find(roleId).map(role -> role.allows(permission)).orElse(false);
+  }
+
+  /** Returns whether an actor role has strictly greater authority than a target role. */
+  public boolean canManage(NamespacedId actorRoleId, NamespacedId targetRoleId) {
+    IslandRoleDefinition actor = find(actorRoleId).orElse(null);
+    IslandRoleDefinition target = find(targetRoleId).orElse(null);
+    return actor != null && target != null && actor.authority() > target.authority();
   }
 
   /**

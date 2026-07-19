@@ -18,6 +18,7 @@ import java.util.Set;
  * @param buildHeight allowed vertical island range
  * @param worlds shared world projections
  * @param operations lifecycle operation policy
+ * @param team island membership limits
  * @param magicBlock starter Magic Block policy
  * @param defaults initial progression identifiers
  * @param roles role inheritance and permissions
@@ -32,6 +33,7 @@ public record FoundationConfigurationSnapshot(
     BuildHeight buildHeight,
     List<SharedWorldSpec> worlds,
     OperationSettings operations,
+    TeamSettings team,
     MagicBlockSettings magicBlock,
     DefaultProgression defaults,
     Map<String, RoleSettings> roles,
@@ -46,6 +48,7 @@ public record FoundationConfigurationSnapshot(
     Objects.requireNonNull(buildHeight, "buildHeight");
     worlds = List.copyOf(worlds);
     Objects.requireNonNull(operations, "operations");
+    Objects.requireNonNull(team, "team");
     Objects.requireNonNull(magicBlock, "magicBlock");
     Objects.requireNonNull(defaults, "defaults");
     roles = Map.copyOf(roles);
@@ -116,6 +119,21 @@ public record FoundationConfigurationSnapshot(
       int quarantineCleanupFailures) {}
 
   /**
+   * Bounded island-team policy.
+   *
+   * @param maximumSize maximum simultaneous active memberships including the owner
+   * @param invitationExpirySeconds lifetime of a newly issued invitation
+   */
+  public record TeamSettings(int maximumSize, long invitationExpirySeconds) {
+    /** Validates bounded team policy. */
+    public TeamSettings {
+      if (maximumSize < 1 || invitationExpirySeconds < 1) {
+        throw new IllegalArgumentException("team size and invitation expiry must be positive");
+      }
+    }
+  }
+
+  /**
    * Starter Magic Block content and regeneration delay.
    *
    * @param starterMaterial uppercase Vanilla material identity
@@ -134,14 +152,18 @@ public record FoundationConfigurationSnapshot(
   /**
    * One immutable role definition.
    *
+   * @param authority team-management rank
    * @param inherits parent role names
    * @param permissions granted island action permissions
    */
-  public record RoleSettings(List<String> inherits, Set<String> permissions) {
+  public record RoleSettings(int authority, List<String> inherits, Set<String> permissions) {
     /** Defensively copies role collections. */
     public RoleSettings {
       inherits = List.copyOf(inherits);
       permissions = Set.copyOf(permissions);
+      if (authority < 0) {
+        throw new IllegalArgumentException("role authority must be non-negative");
+      }
     }
   }
 

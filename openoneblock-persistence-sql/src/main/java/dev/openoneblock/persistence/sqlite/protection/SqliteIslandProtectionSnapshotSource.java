@@ -68,6 +68,7 @@ public final class SqliteIslandProtectionSnapshotSource implements IslandProtect
         return Optional.empty();
       }
       loadMemberships(connection, islandId, builder);
+      loadAccessRecords(connection, islandId, builder);
       loadMagicBlocks(connection, islandId, builder);
       return Optional.of(builder.build());
     } catch (SQLException | IllegalArgumentException failure) {
@@ -80,6 +81,7 @@ public final class SqliteIslandProtectionSnapshotSource implements IslandProtect
     try (Connection connection = connectionFactory.open()) {
       Map<IslandId, Builder> builders = loadIslands(connection);
       loadMemberships(connection, builders);
+      loadAccessRecords(connection, builders);
       loadMagicBlocks(connection, builders);
       return builders.values().stream().map(Builder::build).toList();
     } catch (SQLException | IllegalArgumentException failure) {
@@ -210,6 +212,51 @@ public final class SqliteIslandProtectionSnapshotSource implements IslandProtect
         }
       }
     }
+  }
+
+  private static void loadAccessRecords(Connection connection, Map<IslandId, Builder> builders)
+      throws SQLException {
+    try (PreparedStatement statement =
+            connection.prepareStatement(
+                """
+                SELECT island_id, player_id, access_state, role_id
+                FROM island_access_records
+                ORDER BY island_id, player_id
+                """);
+        ResultSet result = statement.executeQuery()) {
+      while (result.next()) {
+        Builder builder = builders.get(IslandId.parse(result.getString("island_id")));
+        if (builder != null) {
+          builder.addMembership(
+              PlayerId.parse(result.getString("player_id")), accessRole(result));
+        }
+      }
+    }
+  }
+
+  private static void loadAccessRecords(
+      Connection connection, IslandId islandId, Builder builder) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT player_id, access_state, role_id
+            FROM island_access_records WHERE island_id = ?
+            ORDER BY player_id
+            """)) {
+      statement.setString(1, islandId.toString());
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next()) {
+          builder.addMembership(
+              PlayerId.parse(result.getString("player_id")), accessRole(result));
+        }
+      }
+    }
+  }
+
+  private static NamespacedId accessRole(ResultSet result) throws SQLException {
+    return result.getString("access_state").equals("BANNED")
+        ? NamespacedId.of("openoneblock", "banned")
+        : NamespacedId.parse(result.getString("role_id"));
   }
 
   private static void loadMagicBlocks(Connection connection, IslandId islandId, Builder builder)

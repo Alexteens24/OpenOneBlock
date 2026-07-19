@@ -19,7 +19,7 @@ class ProtectionConfigurationCompilerTest {
     Map<String, FoundationConfigurationSnapshot.RoleSettings> roles =
         Map.of(
             "owner",
-            role(List.of(), "*"),
+            new FoundationConfigurationSnapshot.RoleSettings(1000, List.of(), Set.of("*")),
             "member",
             role(List.of(), "BLOCK_BREAK", "USE_BUCKET"),
             "trusted",
@@ -52,12 +52,18 @@ class ProtectionConfigurationCompilerTest {
   void requiresExplicitVisitorFallback() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> new ProtectionConfigurationCompiler().compile(Map.of("owner", role(List.of(), "*"))));
+        () ->
+            new ProtectionConfigurationCompiler()
+                .compile(
+                    Map.of(
+                        "owner",
+                        new FoundationConfigurationSnapshot.RoleSettings(
+                            1000, List.of(), Set.of("*")))));
   }
 
   private static FoundationConfigurationSnapshot.RoleSettings role(
       List<String> inherits, String... permissions) {
-    return new FoundationConfigurationSnapshot.RoleSettings(inherits, Set.of(permissions));
+    return new FoundationConfigurationSnapshot.RoleSettings(100, inherits, Set.of(permissions));
   }
 
   private static NamespacedId id(String role) {

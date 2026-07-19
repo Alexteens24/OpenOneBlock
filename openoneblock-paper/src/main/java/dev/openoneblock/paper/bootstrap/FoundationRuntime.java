@@ -14,7 +14,9 @@ import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.core.team.IslandMemberRepository;
+import dev.openoneblock.core.team.IslandInvitationRepository;
 import dev.openoneblock.core.team.IslandRoleRegistry;
+import dev.openoneblock.core.team.IslandTeamService;
 import dev.openoneblock.core.world.WorldEffectJournal;
 import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
@@ -32,6 +34,8 @@ import java.util.Objects;
  * @param protection native event-independent protection engine
  * @param islandRoles compiled application-service role registry
  * @param islandMembers authoritative immutable membership queries
+ * @param islandInvitations authoritative immutable pending-invitation queries
+ * @param islandTeam serialized transactional membership mutations
  * @param islandRepository authoritative island persistence service
  * @param islandLanes sequential mutation lanes
  * @param islandRuntimes reference-counted island chunk lifecycle manager
@@ -54,6 +58,8 @@ public record FoundationRuntime(
     ProtectionEngine protection,
     IslandRoleRegistry islandRoles,
     IslandMemberRepository islandMembers,
+    IslandInvitationRepository islandInvitations,
+    IslandTeamService islandTeam,
     IslandCreationRepository islandRepository,
     IslandExecutionLanes islandLanes,
     IslandRuntimeManager islandRuntimes,
@@ -76,6 +82,8 @@ public record FoundationRuntime(
     Objects.requireNonNull(protection, "protection");
     Objects.requireNonNull(islandRoles, "islandRoles");
     Objects.requireNonNull(islandMembers, "islandMembers");
+    Objects.requireNonNull(islandInvitations, "islandInvitations");
+    Objects.requireNonNull(islandTeam, "islandTeam");
     Objects.requireNonNull(islandRepository, "islandRepository");
     Objects.requireNonNull(islandLanes, "islandLanes");
     Objects.requireNonNull(islandRuntimes, "islandRuntimes");

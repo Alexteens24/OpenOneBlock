@@ -1,17 +1,20 @@
 # Role inheritance is validated as an acyclic graph.
-schema-version: 1
+schema-version: 2
 roles:
   owner:
+    authority: 1000
     inherits: []
     permissions:
       - '*'
   co_owner:
+    authority: 800
     inherits:
       - moderator
     permissions:
       - UPGRADE_ISLAND
       - RESET_ISLAND
   member:
+    authority: 400
     inherits: []
     permissions:
       - BLOCK_BREAK
@@ -25,6 +28,7 @@ roles:
       - TELEPORT
       - SET_HOME
   moderator:
+    authority: 600
     inherits:
       - member
     permissions:
@@ -32,6 +36,7 @@ roles:
       - KICK_MEMBER
       - CHANGE_SETTINGS
   trusted:
+    authority: 200
     inherits: []
     permissions:
       - CONTAINER_OPEN
@@ -40,8 +45,10 @@ roles:
       - USE_BUCKET
       - TELEPORT
   visitor:
+    authority: 100
     inherits: []
     permissions: []
   banned:
+    authority: 0
     inherits: []
     permissions: []

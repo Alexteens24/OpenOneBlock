@@ -1,10 +1,13 @@
 # Island lifecycle and starter gameplay defaults.
-schema-version: 1
+schema-version: 2
 operations:
   creation-timeout-seconds: 120
   reset-timeout-seconds: 300
   delete-timeout-seconds: 300
   quarantine-cleanup-failures: 3
+team:
+  maximum-size: 8
+  invitation-expiry-seconds: 300
 magic-block:
   starter-material: GRASS_BLOCK
   regeneration-delay-ticks: 2

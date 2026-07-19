@@ -62,7 +62,8 @@ public final class ProtectionConfigurationCompiler {
           new IslandRoleDefinition(
               NamespacedId.of("openoneblock", role),
               accumulated.permissions(),
-              accumulated.wildcard()));
+              accumulated.wildcard(),
+              configuredRoles.get(role).authority()));
     }
     return new IslandRoleRegistry(definitions);
   }

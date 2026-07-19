@@ -25,6 +25,8 @@ class IslandRoleRegistryTest {
     assertTrue(registry.allows(id("member"), IslandPermission.BLOCK_BREAK));
     assertFalse(registry.allows(id("member"), IslandPermission.KICK_MEMBER));
     assertFalse(registry.allows(id("missing"), IslandPermission.BLOCK_BREAK));
+    assertTrue(registry.canManage(id("owner"), id("member")));
+    assertFalse(registry.canManage(id("member"), id("owner")));
   }
 
   @Test
@@ -38,7 +40,8 @@ class IslandRoleRegistryTest {
 
   private static IslandRoleDefinition role(
       String id, Set<IslandPermission> permissions, boolean wildcard) {
-    return new IslandRoleDefinition(id(id), permissions, wildcard);
+    int authority = id.equals("owner") ? 1000 : id.equals("member") ? 400 : 0;
+    return new IslandRoleDefinition(id(id), permissions, wildcard, authority);
   }
 
   private static NamespacedId id(String value) {

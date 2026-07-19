@@ -345,6 +345,8 @@ class FoundationBootstrapCoordinatorTest {
         new dev.openoneblock.paper.config.ProtectionConfigurationCompiler()
             .compileIslandRoles(configuration.roles()),
         islandId -> CompletableFuture.completedFuture(List.of()),
+        (playerId, observedAt) -> CompletableFuture.completedFuture(List.of()),
+        unavailableTeamService(lanes),
         repository,
         lanes,
         runtimes,
@@ -358,6 +360,41 @@ class FoundationBootstrapCoordinatorTest {
         deletion,
         resets,
         reset);
+  }
+
+  private static dev.openoneblock.core.team.IslandTeamService unavailableTeamService(
+      IslandExecutionLanes lanes) {
+    dev.openoneblock.core.team.IslandTeamRepository unavailable =
+        new dev.openoneblock.core.team.IslandTeamRepository() {
+          @Override
+          public java.util.concurrent.CompletionStage<dev.openoneblock.core.team.TeamMutationResult>
+              invite(dev.openoneblock.core.team.IslandInvitationCommand command) {
+            return CompletableFuture.failedFuture(new UnsupportedOperationException("test"));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<dev.openoneblock.core.team.TeamMutationResult>
+              respond(dev.openoneblock.core.team.IslandInvitationResponseCommand command) {
+            return CompletableFuture.failedFuture(new UnsupportedOperationException("test"));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<dev.openoneblock.core.team.TeamMutationResult>
+              mutate(dev.openoneblock.core.team.IslandMembershipCommand command) {
+            return CompletableFuture.failedFuture(new UnsupportedOperationException("test"));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<dev.openoneblock.core.team.TeamMutationResult>
+              transferOwnership(dev.openoneblock.core.team.IslandOwnershipTransferCommand command) {
+            return CompletableFuture.failedFuture(new UnsupportedOperationException("test"));
+          }
+        };
+    return new dev.openoneblock.core.team.IslandTeamService(
+        unavailable,
+        lanes,
+        dev.openoneblock.core.team.IslandMembershipEventPublisher.NO_OP,
+        new dev.openoneblock.core.team.IslandTeamPolicy(8, java.time.Duration.ofMinutes(5)));
   }
 
   private static WorldEffectJournal unavailableWorldEffects() {
