@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 252 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 253 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -599,7 +599,9 @@ Goal: safely release or rebuild cells without ever exposing residue to another i
 - [x] Clear configured world regions across every dimension projection.
 - [x] Release chunk/plugin tickets.
 - [x] Remove locator ownership only after authoritative transition.
-- [ ] Verify no island, migration, operation, or scheduled action references the slot.
+- [~] Verify no island or non-terminal operation references the slot, detach historical terminal
+  operation references, and quarantine on uncertainty before release; migration and scheduled-action
+  reference providers must join this audit when those subsystems are introduced.
 - [x] Archive island and deactivate memberships only after verified cleanup.
 - [x] Transition slot to `FREE` only in the final verified transaction.
 

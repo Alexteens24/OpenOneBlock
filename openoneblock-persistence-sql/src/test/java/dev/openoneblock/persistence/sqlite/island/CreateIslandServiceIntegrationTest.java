@@ -487,6 +487,10 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(1, freeSlots(context.factory()));
     assertEquals(0, count(context.factory(), "magic_blocks"));
     assertEquals(0, count(context.factory(), "island_spawn_points"));
+    assertEquals(
+        0,
+        slotOperationReferences(
+            context.factory(), created.island().primarySlot().orElseThrow().slotId()));
     assertInstanceOf(
         dev.openoneblock.core.locator.SlotLocatorLookup.Empty.class,
         context
@@ -522,6 +526,36 @@ class CreateIslandServiceIntegrationTest {
         dev.openoneblock.core.slot.SlotState.QUARANTINED,
         broken.primarySlot().orElseThrow().state());
     assertEquals(1, activeMemberships(context.factory(), created.island().islandId()));
+  }
+
+  @Test
+  void verifiedCleanupQuarantinesWhenAnotherNonTerminalOperationReferencesSlot()
+      throws Exception {
+    TestContext context =
+        context("delete-reference-conflict.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("e9515fe3-fbdf-44bd-84d0-d91c79b10a2f");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    insertNonTerminalSlotOperation(
+        context.factory(),
+        created.island().islandId(),
+        created.island().primarySlot().orElseThrow().slotId());
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    DeleteIslandService service = deleteService(context, repository, cleanup);
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () -> service.delete(deletion(created, owner)).toCompletableFuture().join());
+
+    assertInstanceOf(IslandDeletionFailedException.class, failure.getCause());
+    var broken = await(context.repository().findById(created.island().islandId())).orElseThrow();
+    assertEquals(IslandLifecycleState.BROKEN, broken.lifecycleState());
+    assertEquals(
+        dev.openoneblock.core.slot.SlotState.QUARANTINED,
+        broken.primarySlot().orElseThrow().state());
+    assertEquals(0, freeSlots(context.factory()));
   }
 
   @Test
@@ -1034,6 +1068,42 @@ class CreateIslandServiceIntegrationTest {
             statement.executeQuery("SELECT COUNT(*) FROM slots WHERE state = 'FREE'")) {
       assertTrue(result.next());
       return result.getInt(1);
+    }
+  }
+
+  private static int slotOperationReferences(
+      SqliteConnectionFactory factory, dev.openoneblock.core.slot.SlotId slotId)
+      throws Exception {
+    try (Connection connection = factory.open();
+        var statement =
+            connection.prepareStatement("SELECT COUNT(*) FROM operations WHERE slot_id = ?")) {
+      statement.setString(1, slotId.toString());
+      try (ResultSet result = statement.executeQuery()) {
+        assertTrue(result.next());
+        return result.getInt(1);
+      }
+    }
+  }
+
+  private static void insertNonTerminalSlotOperation(
+      SqliteConnectionFactory factory,
+      IslandId islandId,
+      dev.openoneblock.core.slot.SlotId slotId)
+      throws Exception {
+    try (Connection connection = factory.open();
+        var statement =
+            connection.prepareStatement(
+                """
+                INSERT INTO operations (
+                    operation_id, island_id, kind, state, slot_id, created_at, updated_at
+                ) VALUES (?, ?, 'TEST_PENDING', 'WAITING', ?, ?, ?)
+                """)) {
+      statement.setString(1, OperationId.generate().toString());
+      statement.setString(2, islandId.toString());
+      statement.setString(3, slotId.toString());
+      statement.setString(4, NOW.toString());
+      statement.setString(5, NOW.toString());
+      assertEquals(1, statement.executeUpdate());
     }
   }
 

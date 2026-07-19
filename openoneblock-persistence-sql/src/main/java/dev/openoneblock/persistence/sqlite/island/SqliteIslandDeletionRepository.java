@@ -219,6 +219,31 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
 
     if (completion.status() == IslandCleanup.Status.VERIFIED_CLEAN) {
       SlotLocatorEntry released = locatorEntry(slot);
+      detachTerminalSlotReferences(connection, completion, slot);
+      if (hasUnsafeSlotReferences(connection, completion, slot)) {
+        IslandDeletionCompletion unsafe =
+            new IslandDeletionCompletion(
+                completion.islandId(),
+                completion.operationId(),
+                completion.expectedIslandVersion(),
+                completion.expectedSlotVersion(),
+                IslandCleanup.Status.AMBIGUOUS,
+                "verified cleanup could not prove exclusive slot references",
+                completion.completedAt());
+        quarantineIsland(connection, unsafe);
+        quarantineSlot(connection, unsafe, slot);
+        completeOperation(connection, unsafe, "AMBIGUOUS");
+        IslandAggregateSnapshot broken =
+            findSnapshot(connection, completion.islandId()).orElseThrow();
+        return new CompleteOutcome(
+            new IslandDeletionProgress(
+                broken,
+                IslandDeletionProgress.Status.AMBIGUOUS,
+                false,
+                unsafe.diagnostic()),
+            null,
+            locatorEntry(broken.primarySlot().orElseThrow()));
+      }
       deleteRuntimeProjections(connection, completion.islandId());
       deactivateMemberships(connection, completion);
       archiveIsland(connection, completion);
@@ -451,6 +476,46 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
     }
   }
 
+  private static void detachTerminalSlotReferences(
+      Connection connection, IslandDeletionCompletion completion, AllocatedSlot slot)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            UPDATE operations SET slot_id = NULL, updated_at = ?
+            WHERE slot_id = ? AND operation_id <> ? AND state = 'COMPLETED'
+            """)) {
+      statement.setString(1, completion.completedAt().toString());
+      statement.setString(2, slot.slotId().toString());
+      statement.setString(3, completion.operationId().toString());
+      statement.executeUpdate();
+    }
+  }
+
+  private static boolean hasUnsafeSlotReferences(
+      Connection connection, IslandDeletionCompletion completion, AllocatedSlot slot)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM islands
+                WHERE primary_slot_id = ? AND island_id <> ?
+                UNION ALL
+                SELECT 1 FROM operations
+                WHERE slot_id = ? AND operation_id <> ? AND state <> 'COMPLETED'
+            )
+            """)) {
+      statement.setString(1, slot.slotId().toString());
+      statement.setString(2, completion.islandId().toString());
+      statement.setString(3, slot.slotId().toString());
+      statement.setString(4, completion.operationId().toString());
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() && result.getInt(1) == 1;
+      }
+    }
+  }
+
   private static void quarantineIsland(Connection connection, IslandDeletionCompletion completion)
       throws SQLException {
     try (PreparedStatement statement =
@@ -497,7 +562,8 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
             """
             UPDATE operations
             SET state = 'COMPLETED', outcome_state = ?, outcome_payload = ?,
-                completed_at = ?, updated_at = ?
+                completed_at = ?, updated_at = ?,
+                slot_id = CASE WHEN ? = 'SUCCEEDED' THEN NULL ELSE slot_id END
             WHERE operation_id = ? AND island_id = ? AND kind = 'ISLAND_DELETE'
               AND state = 'CLEANING_WORLD' AND outcome_state IS NULL
             """)) {
@@ -505,8 +571,9 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
       statement.setString(2, completion.diagnostic());
       statement.setString(3, completion.completedAt().toString());
       statement.setString(4, completion.completedAt().toString());
-      statement.setString(5, completion.operationId().toString());
-      statement.setString(6, completion.islandId().toString());
+      statement.setString(5, outcome);
+      statement.setString(6, completion.operationId().toString());
+      statement.setString(7, completion.islandId().toString());
       requireOne(statement, "Deletion operation changed before completion");
     }
   }
