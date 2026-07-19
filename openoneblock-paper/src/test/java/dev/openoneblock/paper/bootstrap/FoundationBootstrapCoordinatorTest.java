@@ -342,6 +342,8 @@ class FoundationBootstrapCoordinatorTest {
         locator,
         protectionIndex,
         protection,
+        new dev.openoneblock.paper.config.ProtectionConfigurationCompiler()
+            .compileIslandRoles(configuration.roles()),
         repository,
         lanes,
         runtimes,

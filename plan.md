@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 239 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 242 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -75,6 +75,9 @@ the first fail-closed Paper gameplay listener slice only after recovery reaches 
   transitions, without database access on gameplay hot paths.
 - [x] Thin Paper protection adapters for player block/bucket/interaction/teleport actions and core
   piston/fluid/explosion/fire mechanics, registered on the global scheduler after runtime recovery.
+- [x] Shared island permission identities and immutable inherited role registry; the seven default
+  roles are compiled for both application services and protection, and unknown permissions fail
+  configuration validation instead of being silently ignored.
 - [x] SQLite connection factory using WAL-compatible configuration.
 - [x] Checksummed, atomic SQL migrations.
 - [x] `BEGIN IMMEDIATE` write transactions with bounded `SQLITE_BUSY` retry.
@@ -551,11 +554,11 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
 
 Goal: support configurable island collaboration without hard-coded listener roles.
 
-- [ ] Add durable roles and permissions config registry.
-- [ ] Add owner, co-owner, moderator, member, trusted, visitor, and banned defaults.
+- [x] Add durable roles and permissions config registry.
+- [x] Add owner, co-owner, moderator, member, trusted, visitor, and banned defaults.
 - [ ] Separate active membership from visitor/trust/ban access records.
 - [ ] Add member repository and immutable `MemberView`.
-- [ ] Enforce one active island membership per player in every SQL backend.
+- [x] Enforce one active island membership per player in the current SQLite backend.
 - [ ] Implement invite, accept, decline, kick, leave, ban, unban, promote, and demote services.
 - [ ] Implement atomic ownership transfer.
 - [ ] Increment island version for every accepted membership mutation.
@@ -569,7 +572,7 @@ Goal: support configurable island collaboration without hard-coded listener role
 - [ ] Owner cannot leave without transfer or deletion policy.
 - [ ] Transfer updates owner/member rows and version atomically.
 - [ ] Role config reload cannot remove permissions into an ambiguous state.
-- [ ] No role bypasses lifecycle protection.
+- [x] No role bypasses lifecycle protection.
 
 ## Milestone 10 — Delete, reset, cleanup, and quarantine (`P0`)
 

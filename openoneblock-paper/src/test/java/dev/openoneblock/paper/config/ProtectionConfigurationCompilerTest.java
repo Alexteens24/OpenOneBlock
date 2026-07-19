@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.openoneblock.api.id.NamespacedId;
+import dev.openoneblock.api.island.IslandPermission;
 import dev.openoneblock.protection.ProtectionAction;
 import dev.openoneblock.protection.RolePermissionRegistry;
 import java.util.List;
@@ -17,11 +18,18 @@ class ProtectionConfigurationCompilerTest {
   void compilesInheritanceWildcardAndPermissionAliases() {
     Map<String, FoundationConfigurationSnapshot.RoleSettings> roles =
         Map.of(
-            "owner", role(List.of(), "*"),
-            "member", role(List.of(), "BLOCK_BREAK", "USE_BUCKET"),
-            "trusted", role(List.of("member"), "REDSTONE_USE"),
-            "visitor", role(List.of()),
-            "manager", role(List.of(), "INVITE_MEMBER"));
+            "owner",
+            role(List.of(), "*"),
+            "member",
+            role(List.of(), "BLOCK_BREAK", "USE_BUCKET"),
+            "trusted",
+            role(List.of("member"), "REDSTONE_USE"),
+            "visitor",
+            role(List.of()),
+            "banned",
+            role(List.of()),
+            "manager",
+            role(List.of(), "INVITE_MEMBER"));
 
     RolePermissionRegistry compiled = new ProtectionConfigurationCompiler().compile(roles);
 
@@ -32,6 +40,12 @@ class ProtectionConfigurationCompilerTest {
     assertTrue(compiled.allows(id("trusted"), ProtectionAction.REDSTONE_USE));
     assertFalse(compiled.allows(id("visitor"), ProtectionAction.BLOCK_BREAK));
     assertFalse(compiled.allows(id("manager"), ProtectionAction.BLOCK_BREAK));
+
+    dev.openoneblock.core.team.IslandRoleRegistry islandRoles =
+        new ProtectionConfigurationCompiler().compileIslandRoles(roles);
+    assertTrue(islandRoles.allows(id("trusted"), IslandPermission.BLOCK_BREAK));
+    assertTrue(islandRoles.allows(id("manager"), IslandPermission.INVITE_MEMBER));
+    assertFalse(islandRoles.allows(id("visitor"), IslandPermission.BLOCK_BREAK));
   }
 
   @Test

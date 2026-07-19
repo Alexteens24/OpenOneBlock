@@ -5,6 +5,12 @@ roles:
     inherits: []
     permissions:
       - '*'
+  co_owner:
+    inherits:
+      - moderator
+    permissions:
+      - UPGRADE_ISLAND
+      - RESET_ISLAND
   member:
     inherits: []
     permissions:
@@ -12,7 +18,30 @@ roles:
       - BLOCK_PLACE
       - CONTAINER_OPEN
       - ENTITY_INTERACT
+      - REDSTONE_USE
       - USE_BUCKET
+      - DAMAGE_ANIMALS
+      - DAMAGE_MONSTERS
+      - TELEPORT
+      - SET_HOME
+  moderator:
+    inherits:
+      - member
+    permissions:
+      - INVITE_MEMBER
+      - KICK_MEMBER
+      - CHANGE_SETTINGS
+  trusted:
+    inherits: []
+    permissions:
+      - CONTAINER_OPEN
+      - ENTITY_INTERACT
+      - REDSTONE_USE
+      - USE_BUCKET
+      - TELEPORT
   visitor:
+    inherits: []
+    permissions: []
+  banned:
     inherits: []
     permissions: []

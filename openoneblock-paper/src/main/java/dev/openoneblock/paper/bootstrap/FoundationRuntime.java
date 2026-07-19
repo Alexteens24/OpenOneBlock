@@ -13,6 +13,7 @@ import dev.openoneblock.core.island.ResetIslandService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.team.IslandRoleRegistry;
 import dev.openoneblock.core.world.WorldEffectJournal;
 import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
@@ -28,6 +29,7 @@ import java.util.Objects;
  * @param slotLocator rebuilt committed slot projection
  * @param protectionIndex immutable hot-path island protection projections
  * @param protection native event-independent protection engine
+ * @param islandRoles compiled application-service role registry
  * @param islandRepository authoritative island persistence service
  * @param islandLanes sequential mutation lanes
  * @param islandRuntimes reference-counted island chunk lifecycle manager
@@ -48,6 +50,7 @@ public record FoundationRuntime(
     InMemorySlotLocatorIndex slotLocator,
     InMemoryIslandProtectionIndex protectionIndex,
     ProtectionEngine protection,
+    IslandRoleRegistry islandRoles,
     IslandCreationRepository islandRepository,
     IslandExecutionLanes islandLanes,
     IslandRuntimeManager islandRuntimes,
@@ -68,6 +71,7 @@ public record FoundationRuntime(
     Objects.requireNonNull(slotLocator, "slotLocator");
     Objects.requireNonNull(protectionIndex, "protectionIndex");
     Objects.requireNonNull(protection, "protection");
+    Objects.requireNonNull(islandRoles, "islandRoles");
     Objects.requireNonNull(islandRepository, "islandRepository");
     Objects.requireNonNull(islandLanes, "islandLanes");
     Objects.requireNonNull(islandRuntimes, "islandRuntimes");

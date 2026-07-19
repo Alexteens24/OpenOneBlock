@@ -19,6 +19,7 @@ import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.team.IslandRoleRegistry;
 import dev.openoneblock.core.world.IslandCellCleanupCoordinator;
 import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
@@ -177,8 +178,10 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               Function<dev.openoneblock.api.id.ShardGroupId, GridGeometry> geometryByShard =
                   ignored -> requireGeometry();
               InMemoryIslandProtectionIndex protectionIndex = new InMemoryIslandProtectionIndex();
-              RolePermissionRegistry rolePermissions =
-                  new ProtectionConfigurationCompiler().compile(configuration.roles());
+              ProtectionConfigurationCompiler roleCompiler = new ProtectionConfigurationCompiler();
+              RolePermissionRegistry rolePermissions = roleCompiler.compile(configuration.roles());
+              IslandRoleRegistry islandRoles =
+                  roleCompiler.compileIslandRoles(configuration.roles());
               ProtectionEngine protectionEngine =
                   new ProtectionEngine(
                       new IslandLocationResolver(activeWorlds, geometryByShard, locator),
@@ -293,6 +296,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       locator,
                       protectionIndex,
                       protectionEngine,
+                      islandRoles,
                       repository,
                       lanes,
                       runtimeManager,

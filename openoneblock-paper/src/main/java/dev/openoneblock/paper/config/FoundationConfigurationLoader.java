@@ -3,6 +3,7 @@ package dev.openoneblock.paper.config;
 import dev.openoneblock.api.id.DimensionId;
 import dev.openoneblock.api.id.NamespacedId;
 import dev.openoneblock.api.id.ShardGroupId;
+import dev.openoneblock.api.island.IslandPermission;
 import dev.openoneblock.core.grid.GridConfiguration;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.BuildHeight;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.DatabaseSettings;
@@ -14,6 +15,7 @@ import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.Observabili
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.OperationSettings;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot.RoleSettings;
 import dev.openoneblock.paper.world.SharedWorldSpec;
+import dev.openoneblock.protection.ProtectionAction;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -40,6 +42,7 @@ import org.yaml.snakeyaml.error.YAMLException;
 
 /** Loads all foundation YAML files into one fully validated immutable candidate. */
 public final class FoundationConfigurationLoader {
+  private static final Set<String> KNOWN_ROLE_PERMISSIONS = knownRolePermissions();
   private static final int SCHEMA_VERSION = 1;
 
   /** Creates a stateless strict foundation configuration loader. */
@@ -294,10 +297,18 @@ public final class FoundationConfigurationLoader {
       if (!role.matches("[a-z][a-z0-9_-]*")) {
         node.constraint("inherits", "safe lowercase role key", role, "rename this role");
       }
-      roles.put(
-          role,
-          new RoleSettings(
-              node.stringList("inherits"), new LinkedHashSet<>(node.stringList("permissions"))));
+      List<String> inheritedRoles = node.stringList("inherits");
+      List<String> permissions = node.stringList("permissions");
+      for (String permission : permissions) {
+        if (!KNOWN_ROLE_PERMISSIONS.contains(permission)) {
+          node.constraint(
+              "permissions",
+              "known uppercase island permission or '*'",
+              permission,
+              "fix the typo or register support before using this permission");
+        }
+      }
+      roles.put(role, new RoleSettings(inheritedRoles, new LinkedHashSet<>(permissions)));
     }
     for (Map.Entry<String, RoleSettings> entry : roles.entrySet()) {
       for (String inherited : entry.getValue().inherits()) {
@@ -314,6 +325,18 @@ public final class FoundationConfigurationLoader {
     }
     detectRoleCycles(roles, nodes, problems);
     return Map.copyOf(roles);
+  }
+
+  private static Set<String> knownRolePermissions() {
+    Set<String> permissions = new LinkedHashSet<>();
+    permissions.add("*");
+    for (IslandPermission permission : IslandPermission.values()) {
+      permissions.add(permission.name());
+    }
+    for (ProtectionAction action : ProtectionAction.values()) {
+      permissions.add(action.name());
+    }
+    return Set.copyOf(permissions);
   }
 
   private static MessageSettings parseMessages(StrictConfigNode root) {

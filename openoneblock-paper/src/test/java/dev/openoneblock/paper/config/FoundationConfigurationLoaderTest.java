@@ -38,6 +38,10 @@ class FoundationConfigurationLoaderTest {
     assertEquals("sqlite", first.database().type());
     assertEquals("openoneblock_overworld", first.worlds().getFirst().worldName());
     assertEquals("openoneblock:plains", first.defaults().phaseId().toString());
+    assertEquals(
+        java.util.Set.of(
+            "owner", "co_owner", "moderator", "member", "trusted", "visitor", "banned"),
+        first.roles().keySet());
     assertEquals(first, second);
     assertEquals(64, first.fingerprint().length());
     assertTrue(Files.isDirectory(dataDirectory.resolve("phases")));
@@ -142,6 +146,22 @@ class FoundationConfigurationLoaderTest {
     assertTrue(
         exception.problems().stream()
             .anyMatch(problem -> problem.expected().equals("acyclic role inheritance")));
+  }
+
+  @Test
+  void unknownRolePermissionIsRejectedInsteadOfSilentlyIgnored() throws Exception {
+    replace("roles.yml", "      - BLOCK_BREAK", "      - BLOCK_BRAKE");
+
+    ConfigurationValidationException exception =
+        assertThrows(ConfigurationValidationException.class, () -> loader.load(dataDirectory));
+
+    assertTrue(
+        exception.problems().stream()
+            .anyMatch(
+                problem ->
+                    problem.file().equals("roles.yml")
+                        && problem.path().endsWith("permissions")
+                        && problem.expected().contains("known uppercase island permission")));
   }
 
   @Test
