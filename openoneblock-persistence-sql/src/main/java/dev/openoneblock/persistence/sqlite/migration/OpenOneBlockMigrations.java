@@ -589,6 +589,28 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX island_cleanup_retry_recovery
                 ON island_cleanup_retry_contexts (requested_at, operation_id)
+                """)),
+        new SqlMigration(
+            12,
+            "verified broken island repair contexts",
+            List.of(
+                """
+                CREATE TABLE island_repair_contexts (
+                    operation_id TEXT PRIMARY KEY REFERENCES operations (operation_id),
+                    requested_by_player_id TEXT NOT NULL,
+                    expected_island_version INTEGER NOT NULL CHECK (
+                        expected_island_version >= 0
+                    ),
+                    expected_slot_version INTEGER NOT NULL CHECK (expected_slot_version >= 0),
+                    minimum_y INTEGER NOT NULL,
+                    maximum_y_exclusive INTEGER NOT NULL,
+                    requested_at TEXT NOT NULL,
+                    CHECK (minimum_y < maximum_y_exclusive)
+                )
+                """,
+                """
+                CREATE INDEX island_repair_recovery
+                ON island_repair_contexts (requested_at, operation_id)
                 """)));
   }
 }

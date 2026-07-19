@@ -348,6 +348,33 @@ class FoundationBootstrapCoordinatorTest {
             new dev.openoneblock.paper.config.ProtectionConfigurationCompiler()
                 .compile(configuration.roles()),
             List.of());
+    dev.openoneblock.core.island.IslandRepairRepository repairs =
+        new dev.openoneblock.core.island.IslandRepairRepository() {
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandRepairProgress> beginRepair(
+              dev.openoneblock.core.island.IslandRepairRequest request) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected repair"));
+          }
+
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandRepairProgress> completeRepair(
+              dev.openoneblock.core.island.IslandRepairCompletion completion) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected repair"));
+          }
+
+          @Override
+          public CompletionStage<List<dev.openoneblock.core.island.IslandRepairRequest>>
+              findPendingRepairs() {
+            return CompletableFuture.completedFuture(List.of());
+          }
+        };
+    dev.openoneblock.core.island.RepairIslandService repair =
+        new dev.openoneblock.core.island.RepairIslandService(
+            repairs,
+            (request, island) ->
+                CompletableFuture.failedFuture(new AssertionError("unexpected repair")),
+            lanes,
+            java.time.Clock.systemUTC());
     return new FoundationRuntime(
         configuration,
         worlds,
@@ -370,6 +397,8 @@ class FoundationBootstrapCoordinatorTest {
         inspection,
         deletions,
         deletion,
+        repairs,
+        repair,
         resets,
         reset);
   }

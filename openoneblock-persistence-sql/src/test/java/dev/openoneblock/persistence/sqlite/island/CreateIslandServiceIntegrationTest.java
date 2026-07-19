@@ -36,11 +36,15 @@ import dev.openoneblock.core.island.IslandDeletionConflictException;
 import dev.openoneblock.core.island.IslandDeletionFailedException;
 import dev.openoneblock.core.island.IslandDeletionRequest;
 import dev.openoneblock.core.island.IslandPostActivationDeliveryException;
+import dev.openoneblock.core.island.IslandRepairFailedException;
+import dev.openoneblock.core.island.IslandRepairRequest;
 import dev.openoneblock.core.island.IslandResetConflictException;
 import dev.openoneblock.core.island.IslandResetFailedException;
 import dev.openoneblock.core.island.IslandResetProgress;
 import dev.openoneblock.core.island.IslandResetRequest;
+import dev.openoneblock.core.island.RepairIslandService;
 import dev.openoneblock.core.island.ResetIslandService;
+import dev.openoneblock.core.island.RuntimeIslandRepairVerifier;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjection;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
@@ -630,6 +634,120 @@ class CreateIslandServiceIntegrationTest {
   }
 
   @Test
+  void verifiedRepairReconcilesBrokenIslandIntoLockButNeverActive() throws Exception {
+    TestContext context =
+        context("verified-repair.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("8522682b-bd56-42c6-822f-e3ef31a3cc77");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    IslandAggregateSnapshot broken = breakByAmbiguousDeletion(context, created, owner);
+    SqliteIslandRepairRepository repository = repairRepository(context);
+    IslandRepairRequest request = repair(broken, PlayerId.of(UUID.randomUUID()));
+    RepairIslandService service = repairService(context, repository);
+
+    var repaired = await(service.repair(request));
+    var replay = await(service.repair(request));
+
+    assertEquals(
+        dev.openoneblock.core.island.IslandRepairProgress.Status.LOCKED, repaired.status());
+    assertTrue(!repaired.replay());
+    assertTrue(replay.replay());
+    IslandAggregateSnapshot persisted =
+        await(context.repository().findById(created.island().islandId())).orElseThrow();
+    assertEquals(IslandLifecycleState.LOCKED, persisted.lifecycleState());
+    assertEquals(
+        dev.openoneblock.core.slot.SlotState.ACTIVE, persisted.primarySlot().orElseThrow().state());
+    assertTrue(persisted.pendingOperationId().isEmpty());
+  }
+
+  @Test
+  void restartRecoveryReverifiesPendingRepairAndInvalidMagicBlockRemainsQuarantined()
+      throws Exception {
+    TestContext recovery =
+        context("repair-recovery.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("ce2df9bd-e05f-49d8-9f26-acd5704c4509");
+    CreateIslandResult created = await(recovery.service().create(command(owner)));
+    IslandAggregateSnapshot broken = breakByAmbiguousDeletion(recovery, created, owner);
+    IslandRepairRequest request = repair(broken, PlayerId.of(UUID.randomUUID()));
+    await(repairRepository(recovery).beginRepair(request));
+
+    SqliteIslandRepairRepository restarted = repairRepository(recovery);
+    assertEquals(List.of(request), await(restarted.findPendingRepairs()));
+    await(repairService(recovery, restarted).recoverPending(request));
+    assertTrue(await(restarted.findPendingRepairs()).isEmpty());
+    assertEquals(
+        IslandLifecycleState.LOCKED,
+        await(recovery.repository().findById(created.island().islandId()))
+            .orElseThrow()
+            .lifecycleState());
+
+    TestContext invalid =
+        context("repair-invalid-content.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId invalidOwner = player("f2163ad9-5361-44ad-97a7-380764f17a1e");
+    CreateIslandResult invalidCreated = await(invalid.service().create(command(invalidOwner)));
+    IslandAggregateSnapshot invalidBroken =
+        breakByAmbiguousDeletion(invalid, invalidCreated, invalidOwner);
+    moveMagicBlockOutsideReservation(invalid.factory(), invalidCreated.island().islandId());
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () ->
+                repairService(invalid, repairRepository(invalid))
+                    .repair(repair(invalidBroken, PlayerId.of(UUID.randomUUID())))
+                    .toCompletableFuture()
+                    .join());
+
+    assertInstanceOf(IslandRepairFailedException.class, failure.getCause());
+    IslandAggregateSnapshot stillBroken =
+        await(invalid.repository().findById(invalidCreated.island().islandId())).orElseThrow();
+    assertEquals(IslandLifecycleState.BROKEN, stillBroken.lifecycleState());
+    assertEquals(
+        dev.openoneblock.core.slot.SlotState.QUARANTINED,
+        stillBroken.primarySlot().orElseThrow().state());
+    assertTrue(stillBroken.pendingOperationId().isEmpty());
+  }
+
+  @Test
+  void repairVerifierExceptionCommitsAmbiguousQuarantineInsteadOfLeavingPendingState()
+      throws Exception {
+    TestContext context =
+        context("repair-verifier-exception.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("8035784c-e3ba-4844-852a-ee898464f2d8");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    IslandAggregateSnapshot broken = breakByAmbiguousDeletion(context, created, owner);
+    SqliteIslandRepairRepository repository = repairRepository(context);
+    Clock clock = Clock.fixed(NOW.plusSeconds(40), ZoneOffset.UTC);
+    RepairIslandService service =
+        new RepairIslandService(
+            repository,
+            (request, island) -> {
+              throw new IllegalStateException("intentional verifier failure");
+            },
+            context.lanes(),
+            clock);
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () ->
+                service
+                    .repair(repair(broken, PlayerId.of(UUID.randomUUID())))
+                    .toCompletableFuture()
+                    .join());
+
+    IslandRepairFailedException repairFailure =
+        assertInstanceOf(IslandRepairFailedException.class, failure.getCause());
+    assertEquals(
+        dev.openoneblock.core.island.IslandRepairProgress.Status.AMBIGUOUS,
+        repairFailure.progress().status());
+    assertTrue(await(repository.findPendingRepairs()).isEmpty());
+    IslandAggregateSnapshot persisted =
+        await(context.repository().findById(created.island().islandId())).orElseThrow();
+    assertEquals(IslandLifecycleState.BROKEN, persisted.lifecycleState());
+    assertTrue(persisted.pendingOperationId().isEmpty());
+  }
+
+  @Test
   void restartRecoveryFindsAndCompletesDurableDeletingIntent() throws Exception {
     TestContext context =
         context("delete-recovery.db", new RecordingWorld(), new RecordingTickets());
@@ -999,6 +1117,35 @@ class CreateIslandServiceIntegrationTest {
         Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC));
   }
 
+  private static IslandAggregateSnapshot breakByAmbiguousDeletion(
+      TestContext context, CreateIslandResult created, PlayerId owner) throws Exception {
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    assertThrows(
+        CompletionException.class,
+        () ->
+            deleteService(context, repository, new RecordingCleanup(IslandCleanup.Status.AMBIGUOUS))
+                .delete(deletion(created, owner))
+                .toCompletableFuture()
+                .join());
+    return await(context.repository().findById(created.island().islandId())).orElseThrow();
+  }
+
+  private static SqliteIslandRepairRepository repairRepository(TestContext context) {
+    return new SqliteIslandRepairRepository(
+        context.factory(), ignored -> GEOMETRY, context.locator(), Runnable::run);
+  }
+
+  private static RepairIslandService repairService(
+      TestContext context, SqliteIslandRepairRepository repository) {
+    Clock clock = Clock.fixed(NOW.plusSeconds(40), ZoneOffset.UTC);
+    return new RepairIslandService(
+        repository,
+        new RuntimeIslandRepairVerifier(context.locator(), context.projections(), clock),
+        context.lanes(),
+        clock);
+  }
+
   private static ResetIslandService resetService(
       TestContext context,
       SqliteIslandResetRepository repository,
@@ -1054,6 +1201,19 @@ class CreateIslandServiceIntegrationTest {
         -64,
         320,
         NOW.plusSeconds(30));
+  }
+
+  private static IslandRepairRequest repair(
+      IslandAggregateSnapshot broken, PlayerId administrator) {
+    return new IslandRepairRequest(
+        broken.islandId(),
+        OperationId.generate(),
+        administrator,
+        broken.version(),
+        broken.primarySlot().orElseThrow().version(),
+        -64,
+        320,
+        NOW.plusSeconds(35));
   }
 
   private static IslandResetRequest reset(CreateIslandResult created, PlayerId owner) {
@@ -1184,6 +1344,17 @@ class CreateIslandServiceIntegrationTest {
       statement.setString(3, slotId.toString());
       statement.setString(4, NOW.toString());
       statement.setString(5, NOW.toString());
+      assertEquals(1, statement.executeUpdate());
+    }
+  }
+
+  private static void moveMagicBlockOutsideReservation(
+      SqliteConnectionFactory factory, IslandId islandId) throws Exception {
+    try (Connection connection = factory.open();
+        var statement =
+            connection.prepareStatement(
+                "UPDATE magic_blocks SET block_x = 30000000 WHERE island_id = ?")) {
+      statement.setString(1, islandId.toString());
       assertEquals(1, statement.executeUpdate());
     }
   }

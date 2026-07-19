@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 255 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 261 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -623,7 +623,9 @@ Goal: safely release or rebuild cells without ever exposing residue to another i
   `BROKEN/QUARANTINED` failed deletions; retry re-cleans every dimension and archives/releases only
   after fresh verification.
 - [x] Prevent direct `QUARANTINED -> FREE`.
-- [ ] Repair enters `LOCKED`, never directly `ACTIVE`.
+- [x] Exact-version repair re-verifies exclusive database ownership, the runtime locator, every
+  configured shard world UUID, border bounds, spawn points, and recoverable Magic Blocks before
+  moving `BROKEN/QUARANTINED` to `LOCKED/ACTIVE-slot`; gameplay never becomes `ACTIVE` implicitly.
 
 ### Acceptance tests
 
@@ -647,14 +649,14 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
   - retry/ambiguity classification;
   - error code and diagnostic context.
 - [ ] Add normalized operation-effect receipts.
-- [~] Add startup scanners for every implemented non-terminal operation: create, reset, delete, and
-  deletion cleanup retry are active; migration, generic repair, scheduled actions, and critical
+- [~] Add startup scanners for every implemented non-terminal operation: create, reset, delete,
+  deletion cleanup retry, and verified repair are active; migration, scheduled actions, and critical
   rewards remain.
-- [~] Recovery handlers for create, reset, delete, and deletion cleanup retry are active; migration,
-  generic repair, scheduled actions, and critical rewards remain.
+- [~] Recovery handlers for create, reset, delete, deletion cleanup retry, and verified repair are
+  active; migration, scheduled actions, and critical rewards remain.
 - [ ] Add bounded recovery concurrency across islands while preserving one lane per island.
-- [~] Mark unprovable create/reset/delete/cleanup-retry state `BROKEN` with slot quarantine instead
-  of guessing; future operation kinds must implement the same policy.
+- [~] Mark unprovable create/reset/delete/cleanup-retry/repair state `BROKEN` with slot quarantine
+  instead of guessing; future operation kinds must implement the same policy.
 - [ ] Persist recovery audit entries.
 - [ ] Add admin operation list/show/retry/abort commands.
 
@@ -1102,10 +1104,11 @@ Migration numbering must remain append-only and checksummed.
 - [x] V9: team invitations and mutually exclusive trusted/banned access records.
 - [x] V10: idempotent team mutation receipts.
 - [x] V11: recoverable quarantined deletion-cleanup retry contexts.
-- [ ] V12: rule execution policies and cooldown state.
-- [ ] V13: durable scheduled actions.
-- [ ] V14: audit logs and retention metadata.
-- [ ] V15: structure/paste/cleanup operation receipts.
+- [x] V12: restart-recoverable verified broken-island repair contexts.
+- [ ] V13: rule execution policies and cooldown state.
+- [ ] V14: durable scheduled actions.
+- [ ] V15: audit logs and retention metadata.
+- [ ] V16: structure/paste/cleanup operation receipts.
 - [ ] Later migrations: backup references, season state, and backend compatibility metadata.
 
 # Test and verification strategy
@@ -1144,6 +1147,8 @@ Migration numbering must remain append-only and checksummed.
   team schema V10, rebuilt the team/protection service graph, and reached the same `READY` state on
   Paper 1.21.11/Java 21 before a bounded shutdown. The deletion-recovery artifact then upgraded that
   same database through V11, registered the cleanup-retry recovery scan, reached `READY`, and shut
+  down cleanly through the live console. The repair artifact then upgraded the same database through
+  V12, registered verified-repair recovery before protection publication, reached `READY`, and shut
   down cleanly through the live console.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
@@ -1190,8 +1195,8 @@ These budgets should become executable benchmarks or metrics thresholds:
 - [ ] Bound YAML size, nesting depth, and collection counts.
 - [ ] Bound database queues, executor queues, and per-island lane queues.
 - [ ] Rate-limit expensive player and admin commands.
-- [~] Delete and reset require exact-version one-time confirmations; repair, purge, and adoption
-  confirmations remain.
+- [~] Delete, reset, cleanup retry, and repair require exact-version idempotent confirmations; purge
+  and adoption confirmations remain.
 - [ ] Redact database credentials and sensitive command values.
 - [ ] Validate addon namespaced IDs and reject duplicate registrations.
 - [ ] Fail closed when capabilities disappear during runtime.

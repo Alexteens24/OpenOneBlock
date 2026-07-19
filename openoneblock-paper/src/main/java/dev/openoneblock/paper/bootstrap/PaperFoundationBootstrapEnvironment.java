@@ -10,7 +10,9 @@ import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandHomeService;
 import dev.openoneblock.core.island.IslandInspectionService;
+import dev.openoneblock.core.island.RepairIslandService;
 import dev.openoneblock.core.island.ResetIslandService;
+import dev.openoneblock.core.island.RuntimeIslandRepairVerifier;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.IslandLocationResolver;
 import dev.openoneblock.core.locator.WorldEnvironment;
@@ -48,6 +50,7 @@ import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandCreationRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandDeletionRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
+import dev.openoneblock.persistence.sqlite.island.SqliteIslandRepairRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandResetRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProtectionPublisher;
@@ -298,6 +301,19 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       geometryByShard,
                       islandCleanup,
                       clock);
+              SqliteIslandRepairRepository repairRepository =
+                  new SqliteIslandRepairRepository(
+                      activeFactory,
+                      geometryByShard,
+                      locator,
+                      protectionPublisher,
+                      activeExecutors.database());
+              RepairIslandService repairService =
+                  new RepairIslandService(
+                      repairRepository,
+                      new RuntimeIslandRepairVerifier(locator, activeWorlds, clock),
+                      lanes,
+                      clock);
               IslandCellCleanupCoordinator cellCleanup =
                   new IslandCellCleanupCoordinator(
                       runtimeManager, activeWorlds, geometryByShard, islandCleanup);
@@ -336,6 +352,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       inspectionService,
                       deletionRepository,
                       deletionService,
+                      repairRepository,
+                      repairService,
                       resetRepository,
                       resetService);
               chunkTickets = ticketController;
@@ -360,6 +378,10 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                               pending.stream()
                                   .map(deletionService::recoverPendingCleanupRetry)
                                   .toList()))
+                  .thenCompose(ignored -> repairRepository.findPendingRepairs())
+                  .thenCompose(
+                      pending ->
+                          sequence(pending.stream().map(repairService::recoverPending).toList()))
                   .thenCompose(ignored -> protectionSource.loadCommittedSnapshots())
                   .thenApply(
                       snapshots -> {

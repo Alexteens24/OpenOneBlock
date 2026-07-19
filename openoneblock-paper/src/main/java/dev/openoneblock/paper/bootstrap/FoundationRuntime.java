@@ -8,7 +8,9 @@ import dev.openoneblock.core.island.IslandDeletionRepository;
 import dev.openoneblock.core.island.IslandHomeService;
 import dev.openoneblock.core.island.IslandInspectionService;
 import dev.openoneblock.core.island.IslandQueryRepository;
+import dev.openoneblock.core.island.IslandRepairRepository;
 import dev.openoneblock.core.island.IslandResetRepository;
+import dev.openoneblock.core.island.RepairIslandService;
 import dev.openoneblock.core.island.ResetIslandService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
@@ -47,6 +49,8 @@ import java.util.Objects;
  * @param islandInspection non-loading admin inspection service
  * @param islandDeletionRepository authoritative deletion/recovery persistence
  * @param islandDeletion crash-safe verified deletion service
+ * @param islandRepairRepository authoritative repair/recovery persistence
+ * @param islandRepair verified broken-to-locked repair service
  * @param islandResetRepository authoritative reset/recovery persistence
  * @param islandReset crash-safe verified reset service
  */
@@ -71,6 +75,8 @@ public record FoundationRuntime(
     IslandInspectionService islandInspection,
     IslandDeletionRepository islandDeletionRepository,
     DeleteIslandService islandDeletion,
+    IslandRepairRepository islandRepairRepository,
+    RepairIslandService islandRepair,
     IslandResetRepository islandResetRepository,
     ResetIslandService islandReset) {
   /** Validates the complete recovered service graph. */
@@ -95,6 +101,8 @@ public record FoundationRuntime(
     Objects.requireNonNull(islandInspection, "islandInspection");
     Objects.requireNonNull(islandDeletionRepository, "islandDeletionRepository");
     Objects.requireNonNull(islandDeletion, "islandDeletion");
+    Objects.requireNonNull(islandRepairRepository, "islandRepairRepository");
+    Objects.requireNonNull(islandRepair, "islandRepair");
     Objects.requireNonNull(islandResetRepository, "islandResetRepository");
     Objects.requireNonNull(islandReset, "islandReset");
   }
