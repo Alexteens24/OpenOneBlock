@@ -413,6 +413,78 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX typed_variables_scope_lookup
                 ON typed_variables (scope_type, scope_id)
+                """)),
+        new SqlMigration(
+            8,
+            "lifecycle operation contexts and progression history",
+            List.of(
+                """
+                CREATE TABLE island_lifecycle_operation_contexts (
+                    operation_id TEXT PRIMARY KEY REFERENCES operations (operation_id),
+                    operation_kind TEXT NOT NULL CHECK (
+                        operation_kind IN ('ISLAND_DELETE', 'ISLAND_RESET')
+                    ),
+                    requested_by_player_id TEXT NOT NULL,
+                    expected_island_version INTEGER NOT NULL CHECK (
+                        expected_island_version >= 0
+                    ),
+                    minimum_y INTEGER NOT NULL,
+                    maximum_y_exclusive INTEGER NOT NULL,
+                    target_world_id TEXT,
+                    target_phase_id TEXT,
+                    target_profile_id TEXT,
+                    starter_block_id TEXT,
+                    magic_block_y INTEGER,
+                    requested_at TEXT NOT NULL,
+                    CHECK (minimum_y < maximum_y_exclusive),
+                    CHECK (
+                        (operation_kind = 'ISLAND_DELETE'
+                            AND target_world_id IS NULL
+                            AND target_phase_id IS NULL
+                            AND target_profile_id IS NULL
+                            AND starter_block_id IS NULL
+                            AND magic_block_y IS NULL)
+                        OR (operation_kind = 'ISLAND_RESET'
+                            AND target_world_id IS NOT NULL
+                            AND target_phase_id IS NOT NULL
+                            AND target_profile_id IS NOT NULL
+                            AND starter_block_id IS NOT NULL
+                            AND magic_block_y >= minimum_y
+                            AND magic_block_y < maximum_y_exclusive - 1)
+                    )
+                )
+                """,
+                """
+                CREATE INDEX island_lifecycle_operation_recovery
+                ON island_lifecycle_operation_contexts (operation_kind, requested_at)
+                """,
+                """
+                CREATE TABLE island_upgrades (
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    upgrade_id TEXT NOT NULL,
+                    level INTEGER NOT NULL CHECK (level > 0),
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    purchased_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (island_id, upgrade_id)
+                )
+                """,
+                """
+                CREATE TABLE island_phase_history (
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    sequence INTEGER NOT NULL CHECK (sequence >= 0),
+                    phase_id TEXT NOT NULL,
+                    entered_at TEXT NOT NULL,
+                    left_at TEXT,
+                    transition_operation_id TEXT REFERENCES operations (operation_id),
+                    PRIMARY KEY (island_id, sequence),
+                    CHECK (left_at IS NULL OR left_at >= entered_at)
+                )
+                """,
+                """
+                CREATE UNIQUE INDEX island_phase_history_one_current
+                ON island_phase_history (island_id)
+                WHERE left_at IS NULL
                 """)));
   }
 }

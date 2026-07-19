@@ -6,10 +6,15 @@ import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.api.id.WorldId;
 import dev.openoneblock.core.island.CreateIslandCommand;
 import dev.openoneblock.core.island.CreateIslandResult;
+import dev.openoneblock.core.island.IslandDeletionConflictException;
+import dev.openoneblock.core.island.IslandDeletionRequest;
+import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.core.island.PlayerIslandNotFoundException;
 import dev.openoneblock.paper.bootstrap.FoundationRuntime;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -22,6 +27,8 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
   private final Supplier<Optional<FoundationRuntime>> runtime;
   private final Supplier<IslandId> islandIds;
   private final Supplier<OperationId> operationIds;
+  private final ConfirmationTokenRegistry confirmations;
+  private final Clock clock;
 
   /**
    * Creates the production command gateway.
@@ -30,7 +37,13 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
    * @param runtime READY-only service graph supplier
    */
   public PaperIslandCommandGateway(Server server, Supplier<Optional<FoundationRuntime>> runtime) {
-    this(server, runtime, IslandId::generate, OperationId::generate);
+    this(
+        server,
+        runtime,
+        IslandId::generate,
+        OperationId::generate,
+        new ConfirmationTokenRegistry(Clock.systemUTC(), Duration.ofSeconds(30), 10_000),
+        Clock.systemUTC());
   }
 
   PaperIslandCommandGateway(
@@ -38,10 +51,28 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
       Supplier<Optional<FoundationRuntime>> runtime,
       Supplier<IslandId> islandIds,
       Supplier<OperationId> operationIds) {
+    this(
+        server,
+        runtime,
+        islandIds,
+        operationIds,
+        new ConfirmationTokenRegistry(Clock.systemUTC(), Duration.ofSeconds(30), 10_000),
+        Clock.systemUTC());
+  }
+
+  PaperIslandCommandGateway(
+      Server server,
+      Supplier<Optional<FoundationRuntime>> runtime,
+      Supplier<IslandId> islandIds,
+      Supplier<OperationId> operationIds,
+      ConfirmationTokenRegistry confirmations,
+      Clock clock) {
     this.server = Objects.requireNonNull(server, "server");
     this.runtime = Objects.requireNonNull(runtime, "runtime");
     this.islandIds = Objects.requireNonNull(islandIds, "islandIds");
     this.operationIds = Objects.requireNonNull(operationIds, "operationIds");
+    this.confirmations = Objects.requireNonNull(confirmations, "confirmations");
+    this.clock = Objects.requireNonNull(clock, "clock");
   }
 
   /** {@inheritDoc} */
@@ -94,6 +125,55 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
                         () ->
                             java.util.concurrent.CompletableFuture.failedFuture(
                                 new PlayerIslandNotFoundException(player))));
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public java.util.concurrent.CompletionStage<ConfirmationChallenge> requestDelete(
+      PlayerId player) {
+    Objects.requireNonNull(player, "player");
+    return info(player)
+        .thenCompose(
+            island -> {
+              if (!island.ownerId().equals(player)) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IslandDeletionConflictException("Deletion requires the island owner"));
+              }
+              return java.util.concurrent.CompletableFuture.completedFuture(
+                  confirmations.issue(
+                      ConfirmationAction.DELETE,
+                      player,
+                      island.islandId(),
+                      island.islandVersion()));
+            });
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public MutationSubmission<IslandDeletionResult> confirmDelete(PlayerId player, String token) {
+    Objects.requireNonNull(player, "player");
+    Objects.requireNonNull(token, "token");
+    OperationId operationId = operationIds.get();
+    try {
+      ConfirmationChallenge challenge =
+          confirmations.consume(token, player, ConfirmationAction.DELETE);
+      FoundationRuntime active =
+          runtime.get().orElseThrow(() -> new CommandRuntimeUnavailableException("not-ready"));
+      var height = active.configuration().buildHeight();
+      IslandDeletionRequest request =
+          new IslandDeletionRequest(
+              challenge.islandId(),
+              operationId,
+              player,
+              challenge.islandVersion(),
+              height.minimumY(),
+              height.maximumYExclusive(),
+              clock.instant());
+      return new MutationSubmission<>(operationId, active.islandDeletion().delete(request));
+    } catch (RuntimeException failure) {
+      return new MutationSubmission<>(
+          operationId, java.util.concurrent.CompletableFuture.failedFuture(failure));
+    }
   }
 
   private MutationSubmission<CreateIslandResult> create(PlayerId owner, OperationId operationId) {

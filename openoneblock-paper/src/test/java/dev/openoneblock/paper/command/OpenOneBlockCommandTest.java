@@ -11,6 +11,7 @@ import dev.openoneblock.api.id.ShardGroupId;
 import dev.openoneblock.api.island.IslandLifecycleState;
 import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
@@ -209,6 +210,69 @@ class OpenOneBlockCommandTest {
     assertEquals(ISLAND_ID, messages.entries().getFirst().placeholders().get("island_id"));
   }
 
+  @Test
+  void deleteFirstIssuesExactConfirmationWithoutMutation() {
+    CompletableFuture<ConfirmationChallenge> pending = new CompletableFuture<>();
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<ConfirmationChallenge> requestDelete(
+              PlayerId player) {
+            return pending;
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+
+    command.execute(source(player(allPlayerPermissions())), new String[] {"delete"});
+
+    assertEquals(List.of(), messages.keys());
+    pending.complete(
+        new ConfirmationChallenge(
+            "delete-token",
+            ConfirmationAction.DELETE,
+            PlayerId.of(PLAYER_UUID),
+            ISLAND_ID,
+            9,
+            Instant.parse("2026-07-19T00:00:30Z")));
+    assertEquals(List.of("command.delete.confirm"), messages.keys());
+    assertEquals("delete-token", messages.entries().getFirst().placeholders().get("token"));
+  }
+
+  @Test
+  void confirmedDeleteReturnsBeforeDurableOperationCompletes() {
+    CompletableFuture<IslandDeletionResult> pending = new CompletableFuture<>();
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public MutationSubmission<IslandDeletionResult> confirmDelete(
+              PlayerId player, String token) {
+            assertEquals("delete-token", token);
+            return new MutationSubmission<>(OPERATION_ID, pending);
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+
+    command.execute(
+        source(player(allPlayerPermissions())), new String[] {"delete", "confirm", "delete-token"});
+
+    assertEquals(List.of("command.delete.started"), messages.keys());
+    assertFalse(pending.isDone());
+    pending.complete(new IslandDeletionResult(ISLAND_ID, OPERATION_ID, false));
+    assertEquals(List.of("command.delete.started", "command.delete.success"), messages.keys());
+  }
+
   private static MutationSubmission<CreateIslandResult> completedSubmission(
       CreateIslandResult result) {
     return new MutationSubmission<>(OPERATION_ID, CompletableFuture.completedFuture(result));
@@ -269,7 +333,8 @@ class OpenOneBlockCommandTest {
         OpenOneBlockPermissions.CREATE,
         OpenOneBlockPermissions.HELP,
         OpenOneBlockPermissions.HOME,
-        OpenOneBlockPermissions.INFO);
+        OpenOneBlockPermissions.INFO,
+        OpenOneBlockPermissions.DELETE);
   }
 
   private static Player player(Set<String> permissions) {

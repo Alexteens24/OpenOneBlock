@@ -6,6 +6,7 @@ import dev.openoneblock.core.execution.IslandExecutionLanes;
 import dev.openoneblock.core.grid.CoordinateRange;
 import dev.openoneblock.core.grid.GridGeometry;
 import dev.openoneblock.core.island.CreateIslandService;
+import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandHomeService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
@@ -35,6 +36,7 @@ import dev.openoneblock.paper.world.SharedWorldSpec;
 import dev.openoneblock.paper.world.UnavailableIslandStructurePlacement;
 import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandCreationRepository;
+import dev.openoneblock.persistence.sqlite.island.SqliteIslandDeletionRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
@@ -203,6 +205,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       maximumYExclusive,
                       new PaperIslandDestinationPreparer(plugin.getServer(), scheduler),
                       playerTeleporter);
+              PaperIslandCleanup islandCleanup =
+                  new PaperIslandCleanup(plugin, plugin.getServer(), scheduler);
               CreateIslandService creationService =
                   new CreateIslandService(
                       repository,
@@ -215,9 +219,21 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       minimumY,
                       maximumYExclusive,
                       preparationCoordinator,
-                      new PaperIslandCleanup(plugin, plugin.getServer(), scheduler),
+                      islandCleanup,
                       playerTeleporter,
                       new BukkitIslandCreatedEventPublisher(plugin.getServer(), scheduler),
+                      clock);
+              SqliteIslandDeletionRepository deletionRepository =
+                  new SqliteIslandDeletionRepository(
+                      activeFactory, locator, activeExecutors.database());
+              DeleteIslandService deletionService =
+                  new DeleteIslandService(
+                      deletionRepository,
+                      lanes,
+                      runtimeManager,
+                      activeWorlds,
+                      geometryByShard,
+                      islandCleanup,
                       clock);
               FoundationRuntime recovered =
                   new FoundationRuntime(
@@ -231,7 +247,9 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       preparationCoordinator,
                       creationService,
                       queryRepository,
-                      homeService);
+                      homeService,
+                      deletionRepository,
+                      deletionService);
               chunkTickets = ticketController;
               runtime = recovered;
               return repository
@@ -239,6 +257,10 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   .thenCompose(
                       pending ->
                           sequence(pending.stream().map(creationService::recoverPending).toList()))
+                  .thenCompose(ignored -> deletionRepository.findPendingDeletions())
+                  .thenCompose(
+                      pending ->
+                          sequence(pending.stream().map(deletionService::recoverPending).toList()))
                   .thenApply(ignored -> recovered);
             });
   }

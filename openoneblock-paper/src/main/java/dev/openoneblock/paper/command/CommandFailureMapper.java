@@ -3,11 +3,14 @@ package dev.openoneblock.paper.command;
 import dev.openoneblock.api.id.OperationId;
 import dev.openoneblock.core.island.CreateIslandRejectedException;
 import dev.openoneblock.core.island.IslandCreationFailedException;
+import dev.openoneblock.core.island.IslandDeletionConflictException;
+import dev.openoneblock.core.island.IslandDeletionFailedException;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandPostActivationDeliveryException;
 import dev.openoneblock.core.island.PlayerIslandNotFoundException;
 import dev.openoneblock.core.island.UnsafeIslandHomeException;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -84,6 +87,39 @@ public final class CommandFailureMapper {
       return new CommandFailure("command.no-island", Map.of(), false);
     }
     return new CommandFailure("command.internal-error", Map.of(), true);
+  }
+
+  /**
+   * Maps one deletion challenge or operation failure.
+   *
+   * @param failure asynchronous failure
+   * @param operationId optional operation trace identity
+   * @return stable response mapping
+   */
+  public CommandFailure mapDelete(Throwable failure, OperationId operationId) {
+    Throwable cause = unwrap(failure);
+    if (cause instanceof CommandRuntimeUnavailableException) {
+      return new CommandFailure("command.not-ready", Map.of(), false);
+    }
+    if (cause instanceof PlayerIslandNotFoundException) {
+      return new CommandFailure("command.no-island", Map.of(), false);
+    }
+    if (cause instanceof ConfirmationRejectedException) {
+      return new CommandFailure("command.confirmation.invalid", Map.of(), false);
+    }
+    if (cause instanceof IslandDeletionConflictException) {
+      return new CommandFailure("command.delete.conflict", Map.of(), false);
+    }
+    if (cause instanceof IslandDeletionFailedException) {
+      return new CommandFailure(
+          "command.delete.quarantined",
+          Map.of("operation_id", Objects.toString(operationId, "not-started")),
+          true);
+    }
+    return new CommandFailure(
+        "command.delete.failed",
+        Map.of("operation_id", Objects.toString(operationId, "not-started")),
+        true);
   }
 
   private static Throwable unwrap(Throwable failure) {

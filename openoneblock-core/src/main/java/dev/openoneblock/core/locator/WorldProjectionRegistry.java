@@ -4,7 +4,9 @@ import dev.openoneblock.api.id.DimensionId;
 import dev.openoneblock.api.id.ShardGroupId;
 import dev.openoneblock.api.id.WorldId;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -58,6 +60,22 @@ public final class WorldProjectionRegistry {
    */
   public int size() {
     return byWorldId.size();
+  }
+
+  /**
+   * Returns every verified dimension projection belonging to a shard in deterministic order.
+   *
+   * @param shardGroupId target shard
+   * @return immutable projections ordered by dimension then world UUID
+   */
+  public List<WorldProjection> projectionsForShard(ShardGroupId shardGroupId) {
+    Objects.requireNonNull(shardGroupId, "shardGroupId");
+    return byWorldId.values().stream()
+        .filter(projection -> projection.shardGroupId().equals(shardGroupId))
+        .sorted(
+            Comparator.comparing(WorldProjection::dimensionId)
+                .thenComparing(WorldProjection::worldId))
+        .toList();
   }
 
   private record ShardDimension(ShardGroupId shardGroupId, DimensionId dimensionId) {}

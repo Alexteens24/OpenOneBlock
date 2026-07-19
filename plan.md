@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 194 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 203 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, and does not yet register gameplay listeners.
 
@@ -133,6 +133,9 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
   `/ob help` handlers.
 - [x] Async SQLite player projections plus fail-closed home validation, destination chunk preparation,
   entity-owned teleport, and non-blocking `/ob home` and `/ob info` handlers.
+- [x] Exact-version one-time confirmation tokens and crash-safe `/ob delete` with owner authority,
+  island-lane serialization, durable V8 context, multi-dimension verified cleanup, exact replay,
+  startup resume, membership retirement, slot release, and mandatory quarantine on uncertainty.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -143,10 +146,12 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
 - [x] Crash recovery for the current creation pipeline resumes allocation, preparation, and cleanup;
   it activates only from verified effects, releases only after verified clean evidence, and otherwise
   keeps the slot quarantined.
+- [x] Crash recovery resumes durable island deletions before publishing `READY` and releases a slot
+  only after every configured dimension reports verified clean evidence.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
-- [~] Player command workflow: create/home/info/help and the command platform are implemented; reset,
-  delete, confirmation tokens, and admin inspect remain.
+- [~] Player command workflow: create/home/info/help/delete and the command platform are implemented;
+  reset and admin inspect remain.
 - [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, first
   Magic Block, normalized counters, and typed-variable storage are persisted; broader team roles,
   upgrades, and aggregate mutation services remain.
@@ -438,7 +443,7 @@ Goal: make the Foundation usable on a test Paper server.
 
 - [x] `/ob create`.
 - [x] `/ob home`.
-- [ ] `/ob delete` with explicit confirmation token.
+- [x] `/ob delete` with explicit confirmation token.
 - [ ] `/ob reset` with explicit confirmation token.
 - [x] `/ob info`.
 - [x] `/ob help`.
@@ -458,7 +463,8 @@ Goal: make the Foundation usable on a test Paper server.
 - [x] Console/player sender requirements are explicit for implemented commands.
 - [x] `/ob home` performs no SQL on the region thread.
 - [x] Teleport failure leaves island state unchanged.
-- [ ] Confirmation tokens expire and cannot target another island/version.
+- [x] Confirmation tokens expire, are one-time/player/action bound, and persistence rejects another
+  island owner or aggregate version.
 
 ## Milestone 8 — Native protection engine (`P0`)
 
@@ -1045,7 +1051,8 @@ Migration numbering must remain append-only and checksummed.
   points, initial progression, and lifecycle lock metadata.
 - [x] V6: Magic Blocks and sequence uniqueness.
 - [x] V7: normalized counters and typed variables.
-- [ ] V8: phases, upgrades, and progression state.
+- [~] V8: lifecycle operation recovery contexts, phase history, and upgrade storage are migrated;
+  reset and broader progression/upgrades services remain.
 - [ ] V9: rule execution policies and cooldown state.
 - [ ] V10: durable scheduled actions.
 - [ ] V11: audit logs and retention metadata.
@@ -1074,10 +1081,10 @@ Migration numbering must remain append-only and checksummed.
 - Verify correct global/region/entity/async scheduler routing.
 - Verify no world mutation executes before ownership dispatch.
 - Verify void-world creator options and existing-world fail-closed checks.
-- Latest manual smoke: Paper 1.21.11 build 132 on Java 21, an existing foundation database migrated
-  from V6 through V7, restart reused the persisted world projection, reached `READY`, both
-  `/oneblock` and `/ob` lifecycle registrations responded, create/home/info console-player
-  constraints were enforced, and bounded shutdown completed without plugin errors.
+- Latest manual smoke: Paper 1.21.11 build 132 on Java 21, an existing V7 foundation database
+  migrated through V8, restart reused the persisted world projection, recovered lifecycle state,
+  reached `READY`, `/ob help` exposed create/home/info/delete, delete's console-player constraint
+  was enforced, and bounded shutdown completed without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

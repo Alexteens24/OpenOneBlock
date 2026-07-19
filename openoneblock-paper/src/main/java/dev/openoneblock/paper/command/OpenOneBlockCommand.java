@@ -2,6 +2,7 @@ package dev.openoneblock.paper.command;
 
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.core.island.CreateIslandResult;
+import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
@@ -18,7 +19,8 @@ import org.bukkit.entity.Player;
 
 /** Paper lifecycle command handler for `/oneblock` and `/ob`. */
 public final class OpenOneBlockCommand implements BasicCommand {
-  private static final List<String> ROOT_SUGGESTIONS = List.of("create", "home", "info", "help");
+  private static final List<String> ROOT_SUGGESTIONS =
+      List.of("create", "home", "info", "delete", "help");
 
   private final PluginRuntimeLifecycle lifecycle;
   private final IslandCommandGateway islands;
@@ -60,6 +62,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "create" -> create(sender);
       case "home" -> home(sender);
       case "info" -> info(sender);
+      case "delete" -> delete(sender, args);
       default -> messages.send(sender, "command.unknown");
     }
   }
@@ -200,6 +203,58 @@ public final class OpenOneBlockCommand implements BasicCommand {
             Map.entry("version", info.islandVersion())));
   }
 
+  private void delete(CommandSender sender, String[] args) {
+    Player player = requirePlayer(sender);
+    if (player == null || !requirePermission(player, OpenOneBlockPermissions.DELETE)) {
+      return;
+    }
+    if (!requireReady(player)) {
+      return;
+    }
+    PlayerId playerId = PlayerId.of(player.getUniqueId());
+    if (args.length == 1) {
+      islands
+          .requestDelete(playerId)
+          .whenComplete(
+              (challenge, failure) -> {
+                if (failure != null) {
+                  respondDeleteFailure(player, null, failure);
+                  return;
+                }
+                messages.send(
+                    player,
+                    "command.delete.confirm",
+                    Map.of(
+                        "island_id", challenge.islandId(),
+                        "token", challenge.token(),
+                        "expires_at", challenge.expiresAt()));
+              });
+      return;
+    }
+    if (args.length != 3 || !args[1].equalsIgnoreCase("confirm") || args[2].isBlank()) {
+      messages.send(player, "command.delete.usage");
+      return;
+    }
+    MutationSubmission<IslandDeletionResult> submission = islands.confirmDelete(playerId, args[2]);
+    messages.send(
+        player, "command.delete.started", Map.of("operation_id", submission.operationId()));
+    submission
+        .completion()
+        .whenComplete(
+            (result, failure) -> {
+              if (failure != null) {
+                respondDeleteFailure(player, submission.operationId(), failure);
+                return;
+              }
+              messages.send(
+                  player,
+                  "command.delete.success",
+                  Map.of(
+                      "island_id", result.islandId(),
+                      "operation_id", result.operationId()));
+            });
+  }
+
   private void respondFailure(
       CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
     CommandFailure mapped = failures.map(failure, operationId);
@@ -216,6 +271,15 @@ public final class OpenOneBlockCommand implements BasicCommand {
     messages.send(sender, mapped.messageKey(), mapped.placeholders());
     if (mapped.log()) {
       logger.log(Level.SEVERE, "OpenOneBlock home operation " + operationId + " failed", failure);
+    }
+  }
+
+  private void respondDeleteFailure(
+      CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
+    CommandFailure mapped = failures.mapDelete(failure, operationId);
+    messages.send(sender, mapped.messageKey(), mapped.placeholders());
+    if (mapped.log()) {
+      logger.log(Level.SEVERE, "OpenOneBlock delete operation " + operationId + " failed", failure);
     }
   }
 
@@ -248,6 +312,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "create" -> OpenOneBlockPermissions.CREATE;
       case "home" -> OpenOneBlockPermissions.HOME;
       case "info" -> OpenOneBlockPermissions.INFO;
+      case "delete" -> OpenOneBlockPermissions.DELETE;
       default -> OpenOneBlockPermissions.HELP;
     };
   }

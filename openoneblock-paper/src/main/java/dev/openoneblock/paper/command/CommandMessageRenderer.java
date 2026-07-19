@@ -52,7 +52,7 @@ public final class CommandMessageRenderer {
 
   private static Map<String, String> fallbacks() {
     Map<String, String> messages = new LinkedHashMap<>();
-    messages.put("command.help", "OpenOneBlock: /ob create | home | info");
+    messages.put("command.help", "OpenOneBlock: /ob create | home | info | delete");
     messages.put("command.unknown", "Unknown subcommand. Use /ob help.");
     messages.put("command.player-only", "This command can only be used by a player.");
     messages.put("command.no-permission", "You do not have permission to do that.");
@@ -78,6 +78,22 @@ public final class CommandMessageRenderer {
         "Island {island_id} | Owner {owner_id} | Role {role_id} | Phase {phase_id} | "
             + "Border {current_border}/{maximum_border} | Breaks {total_breaks} | "
             + "Sequence {sequence} | Members {members} | Version {version}");
+    messages.put(
+        "command.delete.confirm",
+        "This permanently deletes island {island_id}. Run /ob delete confirm {token} before {expires_at}.");
+    messages.put("command.delete.usage", "Use /ob delete, then /ob delete confirm <token>.");
+    messages.put("command.delete.started", "Deleting island safely... Operation: {operation_id}");
+    messages.put("command.delete.success", "Island {island_id} was deleted safely.");
+    messages.put(
+        "command.delete.quarantined",
+        "Cleanup could not be proven safe; the island slot was quarantined. Operation: {operation_id}");
+    messages.put(
+        "command.delete.conflict",
+        "Island ownership or version changed; request a new confirmation.");
+    messages.put(
+        "command.delete.failed", "Island deletion failed safely. Operation: {operation_id}");
+    messages.put(
+        "command.confirmation.invalid", "Confirmation token is invalid, expired, or already used.");
     return Map.copyOf(messages);
   }
 }

@@ -22,6 +22,7 @@ import dev.openoneblock.core.island.CreateIslandCommand;
 import dev.openoneblock.core.island.CreateIslandRejectedException;
 import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.CreateIslandService;
+import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
 import dev.openoneblock.core.island.IslandCreationContext;
 import dev.openoneblock.core.island.IslandCreationFailedException;
@@ -30,6 +31,9 @@ import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
+import dev.openoneblock.core.island.IslandDeletionConflictException;
+import dev.openoneblock.core.island.IslandDeletionFailedException;
+import dev.openoneblock.core.island.IslandDeletionRequest;
 import dev.openoneblock.core.island.IslandPostActivationDeliveryException;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjection;
@@ -94,6 +98,7 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(0, context.runtimes().loadedChunkCount());
     assertEquals(1, count(context.factory(), "island_spawn_points"));
     assertEquals(1, count(context.factory(), "island_progression"));
+    assertEquals(1, count(context.factory(), "island_phase_history"));
     assertEquals(2, count(context.factory(), "counters"));
     assertEquals(1, count(context.factory(), "magic_blocks"));
     assertEquals(3, count(context.factory(), "world_effect_receipts"));
@@ -421,6 +426,162 @@ class CreateIslandServiceIntegrationTest {
     assertEquals(1, delivery.events.size());
   }
 
+  @Test
+  void verifiedDeletionCleansEveryDimensionArchivesAndReleasesForExactReplay() throws Exception {
+    TestContext context =
+        context("delete-success.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("4f7963c6-0cfb-4534-bbe0-a063a420a863");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    WorldId nether = WorldId.of(UUID.randomUUID());
+    WorldProjectionRegistry dimensions =
+        new WorldProjectionRegistry(
+            List.of(
+                new WorldProjection(WORLD, SHARD, DimensionId.parse("openoneblock:overworld")),
+                new WorldProjection(nether, SHARD, DimensionId.parse("openoneblock:nether"))));
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    DeleteIslandService service =
+        new DeleteIslandService(
+            repository,
+            context.lanes(),
+            context.runtimes(),
+            dimensions,
+            ignored -> GEOMETRY,
+            cleanup,
+            Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC));
+    IslandDeletionRequest request = deletion(created, owner);
+
+    var result = await(service.delete(request));
+    var replay = await(service.delete(request));
+
+    assertEquals(created.island().islandId(), result.islandId());
+    assertTrue(!result.replay());
+    assertTrue(replay.replay());
+    assertEquals(2, cleanup.calls.get());
+    assertEquals(
+        IslandLifecycleState.ARCHIVED,
+        await(context.repository().findById(created.island().islandId()))
+            .orElseThrow()
+            .lifecycleState());
+    assertEquals(0, activeMemberships(context.factory(), created.island().islandId()));
+    assertEquals(1, freeSlots(context.factory()));
+    assertEquals(0, count(context.factory(), "magic_blocks"));
+    assertEquals(0, count(context.factory(), "island_spawn_points"));
+    assertInstanceOf(
+        dev.openoneblock.core.locator.SlotLocatorLookup.Empty.class,
+        context
+            .locator()
+            .lookup(SHARD, created.island().primarySlot().orElseThrow().gridPosition()));
+  }
+
+  @Test
+  void ambiguousDeletionQuarantinesAndReplayNeverCleansAgain() throws Exception {
+    TestContext context =
+        context("delete-ambiguous.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("12e5058a-52fd-4c32-aed3-76e9ce26caeb");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.AMBIGUOUS);
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    DeleteIslandService service = deleteService(context, repository, cleanup);
+    IslandDeletionRequest request = deletion(created, owner);
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class, () -> service.delete(request).toCompletableFuture().join());
+    CompletionException replay =
+        assertThrows(
+            CompletionException.class, () -> service.delete(request).toCompletableFuture().join());
+
+    assertInstanceOf(IslandDeletionFailedException.class, failure.getCause());
+    assertInstanceOf(IslandDeletionFailedException.class, replay.getCause());
+    assertEquals(1, cleanup.calls.get());
+    var broken = await(context.repository().findById(created.island().islandId())).orElseThrow();
+    assertEquals(IslandLifecycleState.BROKEN, broken.lifecycleState());
+    assertEquals(
+        dev.openoneblock.core.slot.SlotState.QUARANTINED,
+        broken.primarySlot().orElseThrow().state());
+    assertEquals(1, activeMemberships(context.factory(), created.island().islandId()));
+  }
+
+  @Test
+  void restartRecoveryFindsAndCompletesDurableDeletingIntent() throws Exception {
+    TestContext context =
+        context("delete-recovery.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("d9e9954e-bc7d-49c0-9532-c9a24a99c1e1");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    IslandDeletionRequest request = deletion(created, owner);
+    await(repository.beginDeletion(request));
+
+    SqliteIslandDeletionRepository restartedRepository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    List<IslandDeletionRequest> pending = await(restartedRepository.findPendingDeletions());
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    DeleteIslandService restarted = deleteService(context, restartedRepository, cleanup);
+
+    assertEquals(List.of(request), pending);
+    await(restarted.recoverPending(pending.getFirst()));
+    assertEquals(1, cleanup.calls.get());
+    assertTrue(await(restartedRepository.findPendingDeletions()).isEmpty());
+    assertEquals(
+        IslandLifecycleState.ARCHIVED,
+        await(context.repository().findById(created.island().islandId()))
+            .orElseThrow()
+            .lifecycleState());
+  }
+
+  @Test
+  void deletionRejectsWrongOwnerAndStaleConfirmationBeforeCleanup() throws Exception {
+    TestContext context =
+        context("delete-authority.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("cf8f71ab-c183-48f6-bc61-52b1d90d2eb0");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    DeleteIslandService service = deleteService(context, repository, cleanup);
+    IslandDeletionRequest valid = deletion(created, owner);
+    IslandDeletionRequest wrongOwner =
+        new IslandDeletionRequest(
+            valid.islandId(),
+            OperationId.generate(),
+            PlayerId.of(UUID.randomUUID()),
+            valid.expectedIslandVersion(),
+            valid.minimumY(),
+            valid.maximumYExclusive(),
+            valid.requestedAt());
+    IslandDeletionRequest stale =
+        new IslandDeletionRequest(
+            valid.islandId(),
+            OperationId.generate(),
+            owner,
+            valid.expectedIslandVersion() - 1,
+            valid.minimumY(),
+            valid.maximumYExclusive(),
+            valid.requestedAt());
+
+    assertInstanceOf(
+        IslandDeletionConflictException.class,
+        assertThrows(
+                CompletionException.class,
+                () -> service.delete(wrongOwner).toCompletableFuture().join())
+            .getCause());
+    assertInstanceOf(
+        IslandDeletionConflictException.class,
+        assertThrows(
+                CompletionException.class, () -> service.delete(stale).toCompletableFuture().join())
+            .getCause());
+    assertEquals(0, cleanup.calls.get());
+    assertEquals(
+        IslandLifecycleState.ACTIVE,
+        await(context.repository().findById(created.island().islandId()))
+            .orElseThrow()
+            .lifecycleState());
+  }
+
   private TestContext context(String databaseName, RecordingWorld world, RecordingTickets tickets) {
     return context(
         databaseName, world, tickets, new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN));
@@ -471,7 +632,31 @@ class CreateIslandServiceIntegrationTest {
             delivery::teleport,
             delivery::publish,
             Clock.fixed(NOW, ZoneOffset.UTC));
-    return new TestContext(factory, repository, lanes, runtimes, service, delivery);
+    return new TestContext(
+        factory, repository, lanes, runtimes, service, delivery, locator, projections);
+  }
+
+  private static DeleteIslandService deleteService(
+      TestContext context, SqliteIslandDeletionRepository repository, RecordingCleanup cleanup) {
+    return new DeleteIslandService(
+        repository,
+        context.lanes(),
+        context.runtimes(),
+        context.projections(),
+        ignored -> GEOMETRY,
+        cleanup,
+        Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC));
+  }
+
+  private static IslandDeletionRequest deletion(CreateIslandResult created, PlayerId owner) {
+    return new IslandDeletionRequest(
+        created.island().islandId(),
+        OperationId.generate(),
+        owner,
+        created.island().version(),
+        -64,
+        320,
+        NOW.plusSeconds(10));
   }
 
   private static CreateIslandCommand command(PlayerId owner) {
@@ -518,6 +703,7 @@ class CreateIslandServiceIntegrationTest {
             "islands",
             "island_spawn_points",
             "island_progression",
+            "island_phase_history",
             "counters",
             "magic_blocks",
             "world_effect_receipts")
@@ -532,13 +718,39 @@ class CreateIslandServiceIntegrationTest {
     }
   }
 
+  private static int activeMemberships(SqliteConnectionFactory factory, IslandId islandId)
+      throws Exception {
+    try (Connection connection = factory.open();
+        var statement =
+            connection.prepareStatement(
+                "SELECT COUNT(*) FROM island_memberships WHERE island_id = ? AND active = 1")) {
+      statement.setString(1, islandId.toString());
+      try (ResultSet result = statement.executeQuery()) {
+        assertTrue(result.next());
+        return result.getInt(1);
+      }
+    }
+  }
+
+  private static int freeSlots(SqliteConnectionFactory factory) throws Exception {
+    try (Connection connection = factory.open();
+        Statement statement = connection.createStatement();
+        ResultSet result =
+            statement.executeQuery("SELECT COUNT(*) FROM slots WHERE state = 'FREE'")) {
+      assertTrue(result.next());
+      return result.getInt(1);
+    }
+  }
+
   private record TestContext(
       SqliteConnectionFactory factory,
       IslandCreationRepository repository,
       IslandExecutionLanes lanes,
       IslandRuntimeManager runtimes,
       CreateIslandService service,
-      RecordingDelivery delivery) {}
+      RecordingDelivery delivery,
+      InMemorySlotLocatorIndex locator,
+      WorldProjectionRegistry projections) {}
 
   private static final class RecordingWorld implements IslandWorldPreparation {
     private final AtomicInteger executions = new AtomicInteger();

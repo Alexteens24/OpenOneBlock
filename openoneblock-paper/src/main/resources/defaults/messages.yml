@@ -5,7 +5,7 @@ formatting:
   mini-message: true
   legacy-colors: false
 messages:
-  command.help: "OpenOneBlock: /ob create | home | info"
+  command.help: "OpenOneBlock: /ob create | home | info | delete"
   command.unknown: "Unknown subcommand. Use /ob help."
   command.player-only: "This command can only be used by a player."
   command.no-permission: "You do not have permission to do that."
@@ -27,3 +27,16 @@ messages:
     Island {island_id} | Owner {owner_id} | Role {role_id} | Phase {phase_id} |
     Border {current_border}/{maximum_border} | Breaks {total_breaks} |
     Sequence {sequence} | Members {members} | Version {version}
+  command.delete.confirm: >-
+    This permanently deletes island {island_id}. Run /ob delete confirm {token}
+    before {expires_at}.
+  command.delete.usage: "Use /ob delete, then /ob delete confirm <token>."
+  command.delete.started: "Deleting island safely... Operation: {operation_id}"
+  command.delete.success: "Island {island_id} was deleted safely."
+  command.delete.quarantined: >-
+    Cleanup could not be proven safe; the island slot was quarantined.
+    Operation: {operation_id}
+  command.delete.conflict: >-
+    Island ownership or version changed; request a new confirmation.
+  command.delete.failed: "Island deletion failed safely. Operation: {operation_id}"
+  command.confirmation.invalid: "Confirmation token is invalid, expired, or already used."

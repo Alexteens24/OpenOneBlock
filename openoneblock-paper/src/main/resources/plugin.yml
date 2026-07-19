@@ -34,3 +34,6 @@ permissions:
   openoneblock.command.info:
     description: Allows viewing the caller's OpenOneBlock island summary.
     default: true
+  openoneblock.command.delete:
+    description: Allows an owner to request and confirm island deletion.
+    default: true

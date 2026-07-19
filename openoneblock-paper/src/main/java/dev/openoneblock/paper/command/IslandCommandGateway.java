@@ -2,6 +2,7 @@ package dev.openoneblock.paper.command;
 
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.core.island.CreateIslandResult;
+import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
 import java.util.concurrent.CompletableFuture;
@@ -38,5 +39,29 @@ public interface IslandCommandGateway {
    */
   default CompletionStage<IslandInfoSnapshot> info(PlayerId player) {
     return CompletableFuture.failedFuture(new UnsupportedOperationException("info is unavailable"));
+  }
+
+  /**
+   * Issues a one-time exact-version deletion challenge.
+   *
+   * @param player requesting owner
+   * @return asynchronous confirmation challenge
+   */
+  default CompletionStage<ConfirmationChallenge> requestDelete(PlayerId player) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("delete is unavailable"));
+  }
+
+  /**
+   * Consumes a deletion confirmation and submits the durable operation.
+   *
+   * @param player confirming owner
+   * @param token one-time confirmation token
+   * @return traceable non-blocking deletion submission
+   */
+  default MutationSubmission<IslandDeletionResult> confirmDelete(PlayerId player, String token) {
+    return new MutationSubmission<>(
+        dev.openoneblock.api.id.OperationId.generate(),
+        CompletableFuture.failedFuture(new UnsupportedOperationException("delete is unavailable")));
   }
 }

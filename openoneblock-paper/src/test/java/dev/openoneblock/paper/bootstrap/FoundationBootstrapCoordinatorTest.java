@@ -237,6 +237,39 @@ class FoundationBootstrapCoordinatorTest {
             maximumY,
             (destination, operationId) -> CompletableFuture.completedFuture(null),
             (playerId, destination, operationId) -> CompletableFuture.completedFuture(null));
+    dev.openoneblock.core.island.IslandDeletionRepository deletions =
+        new dev.openoneblock.core.island.IslandDeletionRepository() {
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandDeletionProgress> beginDeletion(
+              dev.openoneblock.core.island.IslandDeletionRequest request) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected deletion"));
+          }
+
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandDeletionProgress>
+              completeDeletion(dev.openoneblock.core.island.IslandDeletionCompletion completion) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected deletion"));
+          }
+
+          @Override
+          public CompletionStage<List<dev.openoneblock.core.island.IslandDeletionRequest>>
+              findPendingDeletions() {
+            return CompletableFuture.completedFuture(List.of());
+          }
+        };
+    dev.openoneblock.core.island.DeleteIslandService deletion =
+        new dev.openoneblock.core.island.DeleteIslandService(
+            deletions,
+            lanes,
+            runtimes,
+            worlds,
+            ignored -> geometry,
+            plan ->
+                CompletableFuture.completedFuture(
+                    new dev.openoneblock.core.world.IslandCleanup.Result(
+                        dev.openoneblock.core.world.IslandCleanup.Status.VERIFIED_CLEAN,
+                        "test deletion cleanup")),
+            java.time.Clock.systemUTC());
     return new FoundationRuntime(
         configuration,
         worlds,
@@ -248,7 +281,9 @@ class FoundationBootstrapCoordinatorTest {
         preparation,
         creation,
         queries,
-        home);
+        home,
+        deletions,
+        deletion);
   }
 
   private static WorldEffectJournal unavailableWorldEffects() {

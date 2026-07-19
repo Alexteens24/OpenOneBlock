@@ -17,5 +17,8 @@ public final class OpenOneBlockPermissions {
   /** Permission to view the caller's active island summary. */
   public static final String INFO = "openoneblock.command.info";
 
+  /** Permission to request and confirm owner island deletion. */
+  public static final String DELETE = "openoneblock.command.delete";
+
   private OpenOneBlockPermissions() {}
 }

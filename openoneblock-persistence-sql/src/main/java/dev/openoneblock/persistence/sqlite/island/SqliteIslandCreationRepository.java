@@ -1109,6 +1109,19 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       statement.setString(4, request.activatedAt().toString());
       statement.executeUpdate();
     }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO island_phase_history (
+                island_id, sequence, phase_id, entered_at, left_at, transition_operation_id
+            ) VALUES (?, 0, ?, ?, NULL, ?)
+            """)) {
+      statement.setString(1, request.islandId().toString());
+      statement.setString(2, request.initialPhaseId().toString());
+      statement.setString(3, request.activatedAt().toString());
+      statement.setString(4, request.operationId().toString());
+      statement.executeUpdate();
+    }
   }
 
   private static void insertMagicBlock(
@@ -1246,6 +1259,9 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
                    AND primary_spawn = 1) AS spawn_count,
                 (SELECT COUNT(*) FROM island_progression
                  WHERE island_id = ? AND current_phase_id = ?) AS progression_count,
+                (SELECT COUNT(*) FROM island_phase_history
+                 WHERE island_id = ? AND sequence = 0 AND phase_id = ?
+                   AND left_at IS NULL) AS phase_history_count,
                 (SELECT COUNT(*) FROM counters
                  WHERE scope_type = 'ISLAND' AND scope_id = ?
                    AND counter_id IN (
@@ -1271,6 +1287,8 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       statement.setString(parameter++, request.islandId().toString());
       statement.setString(parameter++, request.initialPhaseId().toString());
       statement.setString(parameter++, request.islandId().toString());
+      statement.setString(parameter++, request.initialPhaseId().toString());
+      statement.setString(parameter++, request.islandId().toString());
       statement.setString(parameter++, request.islandId().toString());
       statement.setString(parameter++, magic.magicBlockId().toString());
       statement.setString(parameter++, magicPosition.worldId().toString());
@@ -1283,6 +1301,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
         if (!result.next()
             || result.getInt("spawn_count") != 1
             || result.getInt("progression_count") != 1
+            || result.getInt("phase_history_count") != 1
             || result.getInt("counter_count") != 2
             || result.getInt("magic_count") != 1) {
           throw new IslandCreationOperationConflictException(

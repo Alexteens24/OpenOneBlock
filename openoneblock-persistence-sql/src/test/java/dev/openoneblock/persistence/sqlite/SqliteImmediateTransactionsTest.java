@@ -23,7 +23,7 @@ class SqliteImmediateTransactionsTest {
   @Test
   void retriesBusyWriterWithBoundedBackoffUntilLockIsReleased() throws Exception {
     SqliteConnectionFactory factory =
-        new SqliteConnectionFactory(temporaryDirectory.resolve("busy-retry.db"), 0);
+        new SqliteConnectionFactory(temporaryDirectory.resolve("busy-retry.db"), 250);
     SqliteImmediateTransactions transactions = new SqliteImmediateTransactions(factory, 500, 2, 5);
     ExecutorService executor = Executors.newSingleThreadExecutor();
     CountDownLatch workerStarted = new CountDownLatch(1);

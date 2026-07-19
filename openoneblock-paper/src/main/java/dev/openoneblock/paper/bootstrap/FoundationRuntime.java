@@ -2,7 +2,9 @@ package dev.openoneblock.paper.bootstrap;
 
 import dev.openoneblock.core.execution.IslandExecutionLanes;
 import dev.openoneblock.core.island.CreateIslandService;
+import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
+import dev.openoneblock.core.island.IslandDeletionRepository;
 import dev.openoneblock.core.island.IslandHomeService;
 import dev.openoneblock.core.island.IslandQueryRepository;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
@@ -27,6 +29,8 @@ import java.util.Objects;
  * @param islandCreation complete idempotent island creation application service
  * @param islandQueries asynchronous immutable player command projections
  * @param islandHome verified safe-home application service
+ * @param islandDeletionRepository authoritative deletion/recovery persistence
+ * @param islandDeletion crash-safe verified deletion service
  */
 public record FoundationRuntime(
     FoundationConfigurationSnapshot configuration,
@@ -39,7 +43,9 @@ public record FoundationRuntime(
     WorldPreparationCoordinator worldPreparation,
     CreateIslandService islandCreation,
     IslandQueryRepository islandQueries,
-    IslandHomeService islandHome) {
+    IslandHomeService islandHome,
+    IslandDeletionRepository islandDeletionRepository,
+    DeleteIslandService islandDeletion) {
   /** Validates the complete recovered service graph. */
   public FoundationRuntime {
     Objects.requireNonNull(configuration, "configuration");
@@ -53,5 +59,7 @@ public record FoundationRuntime(
     Objects.requireNonNull(islandCreation, "islandCreation");
     Objects.requireNonNull(islandQueries, "islandQueries");
     Objects.requireNonNull(islandHome, "islandHome");
+    Objects.requireNonNull(islandDeletionRepository, "islandDeletionRepository");
+    Objects.requireNonNull(islandDeletion, "islandDeletion");
   }
 }
