@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 243 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 244 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -558,7 +558,8 @@ Goal: support configurable island collaboration without hard-coded listener role
 
 - [x] Add durable roles and permissions config registry.
 - [x] Add owner, co-owner, moderator, member, trusted, visitor, and banned defaults.
-- [ ] Separate active membership from visitor/trust/ban access records.
+- [x] Separate active membership from visitor/trust/ban access records with a V9 schema that keeps
+  invitations, active memberships, and the mutually exclusive trusted/banned projection distinct.
 - [x] Add member repository and immutable `MemberView`.
 - [x] Enforce one active island membership per player in the current SQLite backend.
 - [ ] Implement invite, accept, decline, kick, leave, ban, unban, promote, and demote services.

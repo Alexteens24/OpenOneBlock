@@ -26,7 +26,7 @@ class SqliteSchemaMigratorTest {
     migrator.migrate();
     migrator.migrate();
 
-    assertEquals(8, migrator.currentVersion());
+    assertEquals(9, migrator.currentVersion());
     try (Connection connection = factory.open();
         Statement statement = connection.createStatement()) {
       try (ResultSet result = statement.executeQuery("PRAGMA journal_mode")) {
@@ -46,11 +46,11 @@ class SqliteSchemaMigratorTest {
                     'island_creation_contexts', 'island_spawn_points',
                     'island_progression', 'magic_blocks', 'counters', 'typed_variables',
                     'island_lifecycle_operation_contexts', 'island_upgrades',
-                    'island_phase_history'
+                    'island_phase_history', 'island_invitations', 'island_access_records'
                 )
               """)) {
         assertTrue(result.next());
-        assertEquals(18, result.getInt(1));
+        assertEquals(20, result.getInt(1));
       }
     }
   }
@@ -67,7 +67,7 @@ class SqliteSchemaMigratorTest {
     }
 
     assertThrows(SqlitePersistenceException.class, migrator::migrate);
-    assertEquals(8, migrator.currentVersion());
+    assertEquals(9, migrator.currentVersion());
   }
 
   @Test
@@ -120,6 +120,84 @@ class SqliteSchemaMigratorTest {
                   ) VALUES (
                       'ISLAND', 'island-1', 'server:invalid', 'INTEGER',
                       1, 'also-set', 0, '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+                  )
+                  """));
+    }
+  }
+
+  @Test
+  void teamSchemaSeparatesMembershipInvitationsAndAccessState() throws Exception {
+    SqliteConnectionFactory factory = factory("team.db");
+    new SqliteSchemaMigrator(factory).migrate();
+    try (Connection connection = factory.open();
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          """
+          INSERT INTO slots (
+              slot_id, shard_group_id, ordinal, grid_x, grid_z, state,
+              owner_island_id, ownership_role, version, created_at, updated_at
+          ) VALUES (
+              'slot-1', 'shard-1', 0, 0, 0, 'ACTIVE',
+              'island-1', 'PRIMARY', 0,
+              '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+          )
+          """);
+      statement.executeUpdate(
+          """
+          INSERT INTO islands (
+              island_id, owner_player_id, lifecycle_state, primary_slot_id,
+              current_border_size, maximum_border_size, version, created_at, updated_at
+          ) VALUES (
+              'island-1', 'owner-1', 'ACTIVE', 'slot-1',
+              64, 384, 0, '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+          )
+          """);
+      statement.executeUpdate(
+          """
+          INSERT INTO island_invitations (
+              invitation_id, island_id, invited_player_id, invited_by_player_id,
+              proposed_role_id, state, expires_at, version, created_at, updated_at
+          ) VALUES (
+              'invite-1', 'island-1', 'player-1', 'owner-1',
+              'member', 'PENDING', '2026-07-20T00:00:00Z', 0,
+              '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+          )
+          """);
+
+      assertThrows(
+          java.sql.SQLException.class,
+          () ->
+              statement.executeUpdate(
+                  """
+                  INSERT INTO island_invitations (
+                      invitation_id, island_id, invited_player_id, invited_by_player_id,
+                      proposed_role_id, state, expires_at, version, created_at, updated_at
+                  ) VALUES (
+                      'invite-2', 'island-1', 'player-1', 'owner-1',
+                      'member', 'PENDING', '2026-07-20T00:00:00Z', 0,
+                      '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+                  )
+                  """));
+
+      statement.executeUpdate(
+          """
+          INSERT INTO island_access_records (
+              island_id, player_id, access_state, role_id, version, created_at, updated_at
+          ) VALUES (
+              'island-1', 'player-1', 'TRUSTED', 'trusted', 0,
+              '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
+          )
+          """);
+      assertThrows(
+          java.sql.SQLException.class,
+          () ->
+              statement.executeUpdate(
+                  """
+                  INSERT INTO island_access_records (
+                      island_id, player_id, access_state, version, created_at, updated_at
+                  ) VALUES (
+                      'island-1', 'player-1', 'BANNED', 0,
+                      '2026-07-19T00:00:00Z', '2026-07-19T00:00:00Z'
                   )
                   """));
     }

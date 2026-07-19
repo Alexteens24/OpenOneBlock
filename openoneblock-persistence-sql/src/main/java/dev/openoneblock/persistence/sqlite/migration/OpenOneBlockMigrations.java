@@ -485,6 +485,60 @@ public final class OpenOneBlockMigrations {
                 CREATE UNIQUE INDEX island_phase_history_one_current
                 ON island_phase_history (island_id)
                 WHERE left_at IS NULL
+                """)),
+        new SqlMigration(
+            9,
+            "team invitations and island access records",
+            List.of(
+                """
+                CREATE TABLE island_invitations (
+                    invitation_id TEXT PRIMARY KEY,
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    invited_player_id TEXT NOT NULL,
+                    invited_by_player_id TEXT NOT NULL,
+                    proposed_role_id TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK (
+                        state IN ('PENDING', 'ACCEPTED', 'DECLINED', 'REVOKED', 'EXPIRED')
+                    ),
+                    expires_at TEXT NOT NULL,
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    responded_at TEXT,
+                    CHECK (
+                        (state = 'PENDING' AND responded_at IS NULL)
+                        OR (state <> 'PENDING' AND responded_at IS NOT NULL)
+                    )
+                )
+                """,
+                """
+                CREATE UNIQUE INDEX island_invitations_one_pending_per_player
+                ON island_invitations (island_id, invited_player_id)
+                WHERE state = 'PENDING'
+                """,
+                """
+                CREATE INDEX island_invitations_pending_player_lookup
+                ON island_invitations (invited_player_id, state, expires_at)
+                """,
+                """
+                CREATE TABLE island_access_records (
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    player_id TEXT NOT NULL,
+                    access_state TEXT NOT NULL CHECK (access_state IN ('TRUSTED', 'BANNED')),
+                    role_id TEXT,
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (island_id, player_id),
+                    CHECK (
+                        (access_state = 'TRUSTED' AND role_id IS NOT NULL)
+                        OR (access_state = 'BANNED' AND role_id IS NULL)
+                    )
+                )
+                """,
+                """
+                CREATE INDEX island_access_records_player_lookup
+                ON island_access_records (player_id, access_state)
                 """)));
   }
 }
