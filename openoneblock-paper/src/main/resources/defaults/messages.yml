@@ -52,7 +52,7 @@ messages:
   command.reset.conflict: >-
     Island ownership or version changed; request a new reset confirmation.
   command.reset.failed: "Island reset failed safely. Operation: {operation_id}"
-  command.admin.usage: "Use /ob admin inspect <island-id>."
+  command.admin.usage: "Use /ob admin inspect <island-id> or /ob admin operation <list|show>."
   command.admin.inspect.not-found: "Island {island_id} does not exist."
   command.admin.inspect: >-
     Island {island_id} | Owner {owner_id} | Lifecycle {lifecycle} v{island_version} |
@@ -60,4 +60,17 @@ messages:
     Border {current_border}/{maximum_border} | Phase {phase} | Sequence {sequence} |
     Members {members} | Pending {pending_operation} | Runtime {runtime}
     ({loaded_chunks} chunks) | Updated {updated_at}
+  command.admin.operation.usage: >-
+    Use /ob admin operation list [island-id] [limit] or
+    /ob admin operation show <operation-id>.
+  command.admin.operation.empty: "No durable operations matched the query."
+  command.admin.operation.not-found: "Operation {operation_id} does not exist."
+  command.admin.operation.list-entry: >-
+    {operation_id} | Island {island_id} | {kind}/{phase} | {outcome} |
+    Retry {retry} | Updated {updated_at}
+  command.admin.operation.show: >-
+    Operation {operation_id} | Island {island_id} | {kind}/{phase} | Slot {slot_id} |
+    Expected island v{expected_island_version}, slot v{expected_slot_version} |
+    Outcome {outcome} | Retry {retry} | Error {error_code} |
+    Last effect {last_effect} | Updated {updated_at}
   command.confirmation.invalid: "Confirmation token is invalid, expired, or already used."

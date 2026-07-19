@@ -17,6 +17,9 @@ import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandResetResult;
+import dev.openoneblock.core.operation.IslandOperationSnapshot;
+import dev.openoneblock.core.operation.OperationEffectEvidence;
+import dev.openoneblock.core.operation.OperationRetryClassification;
 import dev.openoneblock.core.slot.AllocatedSlot;
 import dev.openoneblock.core.slot.SlotId;
 import dev.openoneblock.core.slot.SlotState;
@@ -245,6 +248,88 @@ class OpenOneBlockCommandTest {
   }
 
   @Test
+  void adminOperationShowSupportsConsoleAndWaitsForTheAsyncProjection() {
+    CompletableFuture<java.util.Optional<IslandOperationSnapshot>> pending =
+        new CompletableFuture<>();
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<java.util.Optional<IslandOperationSnapshot>>
+              findOperation(OperationId operationId) {
+            assertEquals(OPERATION_ID, operationId);
+            return pending;
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+    CommandSender console =
+        sender(Set.of(OpenOneBlockPermissions.COMMAND, OpenOneBlockPermissions.ADMIN_OPERATION));
+
+    command.execute(
+        source(console), new String[] {"admin", "operation", "show", OPERATION_ID.toString()});
+
+    assertEquals(List.of(), messages.keys());
+    assertFalse(pending.isDone());
+    pending.complete(java.util.Optional.of(operation()));
+    assertEquals(List.of("command.admin.operation.show"), messages.keys());
+    assertEquals(
+        "1:VERIFY_SAFE_SPAWN:AMBIGUOUS@2",
+        messages.entries().getFirst().placeholders().get("last_effect"));
+  }
+
+  @Test
+  void adminOperationListPassesAnExactIslandFilterAndBoundedLimit() {
+    RecordingMessenger messages = new RecordingMessenger();
+    IslandCommandGateway gateway =
+        new IslandCommandGateway() {
+          @Override
+          public MutationSubmission<CreateIslandResult> create(PlayerId owner) {
+            return completedSubmission(activeResult(false));
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<List<IslandOperationSnapshot>> listOperations(
+              java.util.Optional<IslandId> islandId, int limit) {
+            assertEquals(java.util.Optional.of(ISLAND_ID), islandId);
+            assertEquals(25, limit);
+            return CompletableFuture.completedFuture(List.of(operation()));
+          }
+        };
+    OpenOneBlockCommand command = command(ready(), gateway, messages);
+    CommandSender console =
+        sender(Set.of(OpenOneBlockPermissions.COMMAND, OpenOneBlockPermissions.ADMIN_OPERATION));
+
+    command.execute(
+        source(console), new String[] {"admin", "operation", "list", ISLAND_ID.toString(), "25"});
+
+    assertEquals(List.of("command.admin.operation.list-entry"), messages.keys());
+  }
+
+  @Test
+  void adminOperationRejectsUnsafeListLimitsBeforeCallingTheGateway() {
+    RecordingMessenger messages = new RecordingMessenger();
+    OpenOneBlockCommand command =
+        command(
+            ready(),
+            ignored -> {
+              throw new AssertionError("gateway must not be called");
+            },
+            messages);
+    CommandSender console =
+        sender(Set.of(OpenOneBlockPermissions.COMMAND, OpenOneBlockPermissions.ADMIN_OPERATION));
+
+    command.execute(
+        source(console), new String[] {"admin", "operation", "list", ISLAND_ID.toString(), "101"});
+
+    assertEquals(List.of("command.admin.operation.usage"), messages.keys());
+  }
+
+  @Test
   void deleteFirstIssuesExactConfirmationWithoutMutation() {
     CompletableFuture<ConfirmationChallenge> pending = new CompletableFuture<>();
     RecordingMessenger messages = new RecordingMessenger();
@@ -432,7 +517,8 @@ class OpenOneBlockCommandTest {
         OpenOneBlockPermissions.INFO,
         OpenOneBlockPermissions.RESET,
         OpenOneBlockPermissions.DELETE,
-        OpenOneBlockPermissions.ADMIN_INSPECT);
+        OpenOneBlockPermissions.ADMIN_INSPECT,
+        OpenOneBlockPermissions.ADMIN_OPERATION);
   }
 
   private static Player player(Set<String> permissions) {
@@ -466,6 +552,29 @@ class OpenOneBlockCommandTest {
         java.util.Optional.empty(),
         java.util.Optional.empty(),
         now);
+  }
+
+  private static IslandOperationSnapshot operation() {
+    Instant now = Instant.parse("2026-07-19T00:00:00Z");
+    return new IslandOperationSnapshot(
+        OPERATION_ID,
+        ISLAND_ID,
+        "ISLAND_REPAIR",
+        "VERIFYING",
+        java.util.Optional.of(SlotId.generate()),
+        java.util.OptionalLong.of(7),
+        java.util.OptionalLong.of(9),
+        java.util.Optional.empty(),
+        java.util.Optional.empty(),
+        java.util.Optional.empty(),
+        OperationRetryClassification.RECONCILE,
+        java.util.Optional.of("world-effect-ambiguous"),
+        java.util.Optional.of("effect could not be verified"),
+        java.util.Optional.of(
+            new OperationEffectEvidence(1, "VERIFY_SAFE_SPAWN", "AMBIGUOUS", 2, now)),
+        now,
+        now,
+        java.util.Optional.empty());
   }
 
   private static CommandSender sender(Set<String> permissions) {

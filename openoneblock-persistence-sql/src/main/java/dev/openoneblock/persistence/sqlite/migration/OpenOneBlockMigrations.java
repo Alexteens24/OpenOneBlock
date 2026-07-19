@@ -611,6 +611,115 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX island_repair_recovery
                 ON island_repair_contexts (requested_at, operation_id)
+                """)),
+        new SqlMigration(
+            13,
+            "durable operation diagnostics metadata",
+            List.of(
+                """
+                ALTER TABLE operations ADD COLUMN expected_island_version INTEGER
+                    CHECK (expected_island_version IS NULL OR expected_island_version >= 0)
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN expected_slot_version INTEGER
+                    CHECK (expected_slot_version IS NULL OR expected_slot_version >= 0)
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN retry_classification TEXT
+                    CHECK (
+                        retry_classification IS NULL
+                        OR retry_classification IN ('NONE', 'AUTOMATIC', 'MANUAL', 'RECONCILE')
+                    )
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN error_code TEXT
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN diagnostic_context TEXT
+                """,
+                """
+                UPDATE operations
+                SET expected_island_version = (
+                    SELECT expected_island_version
+                    FROM island_lifecycle_operation_contexts context
+                    WHERE context.operation_id = operations.operation_id
+                )
+                WHERE EXISTS (
+                    SELECT 1 FROM island_lifecycle_operation_contexts context
+                    WHERE context.operation_id = operations.operation_id
+                )
+                """,
+                """
+                UPDATE operations
+                SET expected_island_version = (
+                        SELECT expected_island_version FROM island_cleanup_retry_contexts context
+                        WHERE context.operation_id = operations.operation_id
+                    ),
+                    expected_slot_version = (
+                        SELECT expected_slot_version FROM island_cleanup_retry_contexts context
+                        WHERE context.operation_id = operations.operation_id
+                    )
+                WHERE EXISTS (
+                    SELECT 1 FROM island_cleanup_retry_contexts context
+                    WHERE context.operation_id = operations.operation_id
+                )
+                """,
+                """
+                UPDATE operations
+                SET expected_island_version = (
+                        SELECT expected_island_version FROM island_repair_contexts context
+                        WHERE context.operation_id = operations.operation_id
+                    ),
+                    expected_slot_version = (
+                        SELECT expected_slot_version FROM island_repair_contexts context
+                        WHERE context.operation_id = operations.operation_id
+                    )
+                WHERE EXISTS (
+                    SELECT 1 FROM island_repair_contexts context
+                    WHERE context.operation_id = operations.operation_id
+                )
+                """,
+                """
+                UPDATE operations
+                SET retry_classification = CASE
+                    WHEN outcome_state = 'SUCCEEDED' THEN 'NONE'
+                    WHEN outcome_state = 'AMBIGUOUS' THEN 'RECONCILE'
+                    WHEN outcome_state = 'FAILED' THEN 'MANUAL'
+                    ELSE 'AUTOMATIC'
+                END
+                """,
+                """
+                CREATE TRIGGER lifecycle_context_operation_metadata
+                AFTER INSERT ON island_lifecycle_operation_contexts
+                BEGIN
+                    UPDATE operations
+                    SET expected_island_version = NEW.expected_island_version
+                    WHERE operation_id = NEW.operation_id;
+                END
+                """,
+                """
+                CREATE TRIGGER cleanup_context_operation_metadata
+                AFTER INSERT ON island_cleanup_retry_contexts
+                BEGIN
+                    UPDATE operations
+                    SET expected_island_version = NEW.expected_island_version,
+                        expected_slot_version = NEW.expected_slot_version
+                    WHERE operation_id = NEW.operation_id;
+                END
+                """,
+                """
+                CREATE TRIGGER repair_context_operation_metadata
+                AFTER INSERT ON island_repair_contexts
+                BEGIN
+                    UPDATE operations
+                    SET expected_island_version = NEW.expected_island_version,
+                        expected_slot_version = NEW.expected_slot_version
+                    WHERE operation_id = NEW.operation_id;
+                END
+                """,
+                """
+                CREATE INDEX operations_recent
+                ON operations (updated_at DESC, operation_id)
                 """)));
   }
 }

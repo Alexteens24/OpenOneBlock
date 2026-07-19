@@ -54,6 +54,7 @@ import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandRepairRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandResetRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
+import dev.openoneblock.persistence.sqlite.operation.SqliteIslandOperationQueryRepository;
 import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProtectionPublisher;
 import dev.openoneblock.persistence.sqlite.protection.SqliteIslandProtectionSnapshotSource;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
@@ -273,6 +274,9 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       playerTeleporter);
               IslandInspectionService inspectionService =
                   new IslandInspectionService(queryRepository, runtimeManager);
+              SqliteIslandOperationQueryRepository operationQueries =
+                  new SqliteIslandOperationQueryRepository(
+                      activeFactory, activeExecutors.database());
               PaperIslandCleanup islandCleanup =
                   new PaperIslandCleanup(plugin, plugin.getServer(), scheduler);
               CreateIslandService creationService =
@@ -352,6 +356,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       queryRepository,
                       homeService,
                       inspectionService,
+                      operationQueries,
                       deletionRepository,
                       deletionService,
                       repairRepository,

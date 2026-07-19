@@ -8,6 +8,9 @@ import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandResetResult;
+import dev.openoneblock.core.operation.IslandOperationSnapshot;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -101,5 +104,19 @@ public interface IslandCommandGateway {
   default CompletionStage<java.util.Optional<IslandInspectionSnapshot>> inspect(IslandId islandId) {
     return CompletableFuture.failedFuture(
         new UnsupportedOperationException("inspection is unavailable"));
+  }
+
+  /** Finds one durable operation without loading its island or chunks. */
+  default CompletionStage<Optional<IslandOperationSnapshot>> findOperation(
+      dev.openoneblock.api.id.OperationId operationId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("operation inspection is unavailable"));
+  }
+
+  /** Lists newest durable operations, optionally restricted to an island. */
+  default CompletionStage<List<IslandOperationSnapshot>> listOperations(
+      Optional<IslandId> islandId, int limit) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("operation inspection is unavailable"));
   }
 }

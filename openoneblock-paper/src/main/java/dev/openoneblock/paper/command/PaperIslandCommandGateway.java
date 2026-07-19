@@ -16,6 +16,7 @@ import dev.openoneblock.core.island.IslandResetConflictException;
 import dev.openoneblock.core.island.IslandResetRequest;
 import dev.openoneblock.core.island.IslandResetResult;
 import dev.openoneblock.core.island.PlayerIslandNotFoundException;
+import dev.openoneblock.core.operation.IslandOperationSnapshot;
 import dev.openoneblock.paper.bootstrap.FoundationRuntime;
 import java.time.Clock;
 import java.time.Duration;
@@ -247,6 +248,32 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
           new CommandRuntimeUnavailableException("not-ready"));
     }
     return active.orElseThrow().islandInspection().inspect(islandId);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public java.util.concurrent.CompletionStage<java.util.Optional<IslandOperationSnapshot>>
+      findOperation(OperationId operationId) {
+    Objects.requireNonNull(operationId, "operationId");
+    Optional<FoundationRuntime> active = runtime.get();
+    if (active.isEmpty()) {
+      return java.util.concurrent.CompletableFuture.failedFuture(
+          new CommandRuntimeUnavailableException("not-ready"));
+    }
+    return active.orElseThrow().islandOperations().find(operationId);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public java.util.concurrent.CompletionStage<java.util.List<IslandOperationSnapshot>>
+      listOperations(java.util.Optional<IslandId> islandId, int limit) {
+    Objects.requireNonNull(islandId, "islandId");
+    Optional<FoundationRuntime> active = runtime.get();
+    if (active.isEmpty()) {
+      return java.util.concurrent.CompletableFuture.failedFuture(
+          new CommandRuntimeUnavailableException("not-ready"));
+    }
+    return active.orElseThrow().islandOperations().list(islandId, limit);
   }
 
   private MutationSubmission<CreateIslandResult> create(PlayerId owner, OperationId operationId) {

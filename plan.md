@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 264 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 270 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -639,7 +639,7 @@ Goal: safely release or rebuild cells without ever exposing residue to another i
 
 Goal: startup can deterministically resume, rollback, clean, or require manual repair.
 
-- [ ] Expand operations schema with:
+- [~] Expand operations schema with:
   - operation kind;
   - durable phase;
   - expected island/slot versions;
@@ -648,7 +648,13 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
   - last verified effect;
   - retry/ambiguity classification;
   - error code and diagnostic context.
-- [ ] Add normalized operation-effect receipts.
+  V13 now stores/backfills expected versions, retry classification, error code, and diagnostic
+  context alongside the existing kind, phase, fingerprint, outcome, and timestamps. Read models
+  expose the latest independently persisted world-effect evidence. Future operation writers must
+  populate structured failure metadata at the point of classification.
+- [~] Add normalized operation-effect receipts: V4 world-effect receipts are normalized and exposed
+  through operation diagnostics; rewards, integrations, and scheduled actions still need their own
+  typed effect evidence.
 - [~] Add startup scanners for every implemented non-terminal operation: create, reset, delete,
   deletion cleanup retry, and verified repair are active; migration, scheduled actions, and critical
   rewards remain.
@@ -660,7 +666,9 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
 - [~] Mark unprovable create/reset/delete/cleanup-retry/repair state `BROKEN` with slot quarantine
   instead of guessing; future operation kinds must implement the same policy.
 - [ ] Persist recovery audit entries.
-- [ ] Add admin operation list/show/retry/abort commands.
+- [~] Add admin operation list/show/retry/abort commands: non-loading asynchronous list/show are
+  available with exact ID parsing, island filtering, bounded limits, expected versions, retry
+  classification, and latest world-effect evidence; guarded retry/abort remain.
 
 ### Acceptance tests
 
@@ -1107,10 +1115,12 @@ Migration numbering must remain append-only and checksummed.
 - [x] V10: idempotent team mutation receipts.
 - [x] V11: recoverable quarantined deletion-cleanup retry contexts.
 - [x] V12: restart-recoverable verified broken-island repair contexts.
-- [ ] V13: rule execution policies and cooldown state.
-- [ ] V14: durable scheduled actions.
-- [ ] V15: audit logs and retention metadata.
-- [ ] V16: structure/paste/cleanup operation receipts.
+- [x] V13: durable operation expected-version, retry/ambiguity, error/diagnostic metadata, backfill,
+  context synchronization, recent-operation index, and non-loading admin projections.
+- [ ] V14: rule execution policies and cooldown state.
+- [ ] V15: durable scheduled actions.
+- [ ] V16: audit logs and retention metadata.
+- [ ] V17: structure/paste/cleanup operation receipts.
 - [ ] Later migrations: backup references, season state, and backend compatibility metadata.
 
 # Test and verification strategy
@@ -1152,7 +1162,10 @@ Migration numbering must remain append-only and checksummed.
   down cleanly through the live console. The repair artifact then upgraded the same database through
   V12, registered verified-repair recovery before protection publication, reached `READY`, and shut
   down cleanly through the live console. A subsequent restart with bounded recovery batches reached
-  the same `READY` state and clean shutdown without schema or projection drift.
+  the same `READY` state and clean shutdown without schema or projection drift. The operation
+  diagnostics artifact then migrated that same V12 database through V13, reached `READY`, executed
+  console-safe `/ob admin operation list` and exact-ID `show` queries asynchronously, reported empty
+  and not-found outcomes deterministically, and shut down cleanly with no severe log entries.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

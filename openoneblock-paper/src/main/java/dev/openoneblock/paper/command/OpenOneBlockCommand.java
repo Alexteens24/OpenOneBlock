@@ -7,6 +7,7 @@ import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
 import dev.openoneblock.core.island.IslandInspectionSnapshot;
 import dev.openoneblock.core.island.IslandResetResult;
+import dev.openoneblock.core.operation.IslandOperationSnapshot;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -80,7 +81,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
     String prefix = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
     return ROOT_SUGGESTIONS.stream()
         .filter(candidate -> candidate.startsWith(prefix))
-        .filter(candidate -> source.getSender().hasPermission(permissionFor(candidate)))
+        .filter(candidate -> hasSubcommandPermission(source.getSender(), candidate))
         .toList();
   }
 
@@ -312,15 +313,27 @@ public final class OpenOneBlockCommand implements BasicCommand {
   }
 
   private void admin(CommandSender sender, String[] args) {
-    if (!sender.hasPermission(OpenOneBlockPermissions.ADMIN_INSPECT)) {
-      messages.send(sender, "command.no-permission");
-      return;
-    }
     if (!lifecycle.isReady()) {
       messages.send(sender, "command.not-ready");
       return;
     }
-    if (args.length != 3 || !args[1].equalsIgnoreCase("inspect")) {
+    if (args.length >= 2 && args[1].equalsIgnoreCase("inspect")) {
+      adminInspect(sender, args);
+      return;
+    }
+    if (args.length >= 2 && args[1].equalsIgnoreCase("operation")) {
+      adminOperation(sender, args);
+      return;
+    }
+    messages.send(sender, "command.admin.usage");
+  }
+
+  private void adminInspect(CommandSender sender, String[] args) {
+    if (!sender.hasPermission(OpenOneBlockPermissions.ADMIN_INSPECT)) {
+      messages.send(sender, "command.no-permission");
+      return;
+    }
+    if (args.length != 3) {
       messages.send(sender, "command.admin.usage");
       return;
     }
@@ -350,6 +363,134 @@ public final class OpenOneBlockCommand implements BasicCommand {
               }
               sendInspection(sender, inspection.orElseThrow());
             });
+  }
+
+  private void adminOperation(CommandSender sender, String[] args) {
+    if (!sender.hasPermission(OpenOneBlockPermissions.ADMIN_OPERATION)) {
+      messages.send(sender, "command.no-permission");
+      return;
+    }
+    if (args.length >= 3 && args[2].equalsIgnoreCase("show")) {
+      adminOperationShow(sender, args);
+      return;
+    }
+    if (args.length >= 3 && args[2].equalsIgnoreCase("list")) {
+      adminOperationList(sender, args);
+      return;
+    }
+    messages.send(sender, "command.admin.operation.usage");
+  }
+
+  private void adminOperationShow(CommandSender sender, String[] args) {
+    if (args.length != 4) {
+      messages.send(sender, "command.admin.operation.usage");
+      return;
+    }
+    dev.openoneblock.api.id.OperationId operationId;
+    try {
+      operationId = dev.openoneblock.api.id.OperationId.parse(args[3]);
+    } catch (IllegalArgumentException failure) {
+      messages.send(sender, "command.admin.operation.usage");
+      return;
+    }
+    islands
+        .findOperation(operationId)
+        .whenComplete(
+            (operation, failure) -> {
+              if (failure != null) {
+                respondOperationQueryFailure(sender, failure);
+              } else if (operation.isEmpty()) {
+                messages.send(
+                    sender,
+                    "command.admin.operation.not-found",
+                    Map.of("operation_id", operationId));
+              } else {
+                sendOperation(sender, "command.admin.operation.show", operation.orElseThrow());
+              }
+            });
+  }
+
+  private void adminOperationList(CommandSender sender, String[] args) {
+    if (args.length < 3 || args.length > 5) {
+      messages.send(sender, "command.admin.operation.usage");
+      return;
+    }
+    java.util.Optional<dev.openoneblock.api.id.IslandId> islandId = java.util.Optional.empty();
+    int limit = 10;
+    try {
+      if (args.length >= 4) {
+        islandId = java.util.Optional.of(dev.openoneblock.api.id.IslandId.parse(args[3]));
+      }
+      if (args.length == 5) {
+        limit = Integer.parseInt(args[4]);
+      }
+      if (limit < 1 || limit > 100) {
+        throw new IllegalArgumentException("invalid limit");
+      }
+    } catch (IllegalArgumentException failure) {
+      messages.send(sender, "command.admin.operation.usage");
+      return;
+    }
+    islands
+        .listOperations(islandId, limit)
+        .whenComplete(
+            (operations, failure) -> {
+              if (failure != null) {
+                respondOperationQueryFailure(sender, failure);
+              } else if (operations.isEmpty()) {
+                messages.send(sender, "command.admin.operation.empty");
+              } else {
+                operations.forEach(
+                    operation ->
+                        sendOperation(sender, "command.admin.operation.list-entry", operation));
+              }
+            });
+  }
+
+  private void sendOperation(
+      CommandSender sender, String messageKey, IslandOperationSnapshot operation) {
+    String lastEffect =
+        operation
+            .lastEffect()
+            .map(
+                effect ->
+                    effect.effectIndex()
+                        + ":"
+                        + effect.effectKind()
+                        + ":"
+                        + effect.state()
+                        + "@"
+                        + effect.dispatchAttempts())
+            .orElse("none");
+    messages.send(
+        sender,
+        messageKey,
+        Map.ofEntries(
+            Map.entry("operation_id", operation.operationId()),
+            Map.entry("island_id", operation.islandId()),
+            Map.entry("kind", operation.kind()),
+            Map.entry("phase", operation.phase()),
+            Map.entry("slot_id", operation.slotId().map(Object::toString).orElse("none")),
+            Map.entry(
+                "expected_island_version",
+                operation.expectedIslandVersion().isPresent()
+                    ? operation.expectedIslandVersion().orElseThrow()
+                    : "none"),
+            Map.entry(
+                "expected_slot_version",
+                operation.expectedSlotVersion().isPresent()
+                    ? operation.expectedSlotVersion().orElseThrow()
+                    : "none"),
+            Map.entry("outcome", operation.outcomeState().orElse("pending")),
+            Map.entry("retry", operation.retryClassification()),
+            Map.entry("error_code", operation.errorCode().orElse("none")),
+            Map.entry("last_effect", lastEffect),
+            Map.entry("updated_at", operation.updatedAt())));
+  }
+
+  private void respondOperationQueryFailure(CommandSender sender, Throwable failure) {
+    messages.send(sender, "command.internal-error");
+    logger.log(Level.SEVERE, "OpenOneBlock operation query failed", failure);
   }
 
   private void sendInspection(CommandSender sender, IslandInspectionSnapshot inspection) {
@@ -452,8 +593,15 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "info" -> OpenOneBlockPermissions.INFO;
       case "reset" -> OpenOneBlockPermissions.RESET;
       case "delete" -> OpenOneBlockPermissions.DELETE;
-      case "admin" -> OpenOneBlockPermissions.ADMIN_INSPECT;
       default -> OpenOneBlockPermissions.HELP;
     };
+  }
+
+  private static boolean hasSubcommandPermission(CommandSender sender, String command) {
+    if (command.equals("admin")) {
+      return sender.hasPermission(OpenOneBlockPermissions.ADMIN_INSPECT)
+          || sender.hasPermission(OpenOneBlockPermissions.ADMIN_OPERATION);
+    }
+    return sender.hasPermission(permissionFor(command));
   }
 }

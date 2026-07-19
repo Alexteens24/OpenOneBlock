@@ -26,5 +26,8 @@ public final class OpenOneBlockPermissions {
   /** Permission to inspect persisted island and cached runtime diagnostics. */
   public static final String ADMIN_INSPECT = "openoneblock.admin.inspect";
 
+  /** Permission to list and inspect durable lifecycle operations. */
+  public static final String ADMIN_OPERATION = "openoneblock.admin.operation";
+
   private OpenOneBlockPermissions() {}
 }

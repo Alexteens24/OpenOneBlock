@@ -395,6 +395,21 @@ class FoundationBootstrapCoordinatorTest {
         queries,
         home,
         inspection,
+        new dev.openoneblock.core.operation.IslandOperationQueryRepository() {
+          @Override
+          public java.util.concurrent.CompletionStage<
+                  java.util.Optional<dev.openoneblock.core.operation.IslandOperationSnapshot>>
+              find(dev.openoneblock.api.id.OperationId operationId) {
+            return CompletableFuture.completedFuture(java.util.Optional.empty());
+          }
+
+          @Override
+          public java.util.concurrent.CompletionStage<
+                  java.util.List<dev.openoneblock.core.operation.IslandOperationSnapshot>>
+              list(java.util.Optional<dev.openoneblock.api.id.IslandId> islandId, int limit) {
+            return CompletableFuture.completedFuture(java.util.List.of());
+          }
+        },
         deletions,
         deletion,
         repairs,

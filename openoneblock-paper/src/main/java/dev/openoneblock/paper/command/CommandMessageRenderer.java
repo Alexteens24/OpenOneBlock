@@ -53,7 +53,8 @@ public final class CommandMessageRenderer {
   private static Map<String, String> fallbacks() {
     Map<String, String> messages = new LinkedHashMap<>();
     messages.put(
-        "command.help", "OpenOneBlock: /ob create | home | info | reset | delete | admin inspect");
+        "command.help",
+        "OpenOneBlock: /ob create | home | info | reset | delete | admin inspect/operation");
     messages.put("command.unknown", "Unknown subcommand. Use /ob help.");
     messages.put("command.player-only", "This command can only be used by a player.");
     messages.put("command.no-permission", "You do not have permission to do that.");
@@ -107,7 +108,9 @@ public final class CommandMessageRenderer {
         "command.reset.conflict",
         "Island ownership or version changed; request a new reset confirmation.");
     messages.put("command.reset.failed", "Island reset failed safely. Operation: {operation_id}");
-    messages.put("command.admin.usage", "Use /ob admin inspect <island-id>.");
+    messages.put(
+        "command.admin.usage",
+        "Use /ob admin inspect <island-id> or /ob admin operation <list|show>.");
     messages.put("command.admin.inspect.not-found", "Island {island_id} does not exist.");
     messages.put(
         "command.admin.inspect",
@@ -116,6 +119,21 @@ public final class CommandMessageRenderer {
             + "Border {current_border}/{maximum_border} | Phase {phase} | Sequence {sequence} | "
             + "Members {members} | Pending {pending_operation} | Runtime {runtime} "
             + "({loaded_chunks} chunks) | Updated {updated_at}");
+    messages.put(
+        "command.admin.operation.usage",
+        "Use /ob admin operation list [island-id] [limit] or operation show <operation-id>.");
+    messages.put("command.admin.operation.empty", "No durable operations matched the query.");
+    messages.put("command.admin.operation.not-found", "Operation {operation_id} does not exist.");
+    messages.put(
+        "command.admin.operation.list-entry",
+        "{operation_id} | Island {island_id} | {kind}/{phase} | {outcome} | "
+            + "Retry {retry} | Updated {updated_at}");
+    messages.put(
+        "command.admin.operation.show",
+        "Operation {operation_id} | Island {island_id} | {kind}/{phase} | Slot {slot_id} | "
+            + "Expected island v{expected_island_version}, slot v{expected_slot_version} | "
+            + "Outcome {outcome} | Retry {retry} | Error {error_code} | "
+            + "Last effect {last_effect} | Updated {updated_at}");
     messages.put(
         "command.confirmation.invalid", "Confirmation token is invalid, expired, or already used.");
     return Map.copyOf(messages);
