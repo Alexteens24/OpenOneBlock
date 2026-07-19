@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 270 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 276 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -665,7 +665,9 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
   still enters its own sequential lane.
 - [~] Mark unprovable create/reset/delete/cleanup-retry/repair state `BROKEN` with slot quarantine
   instead of guessing; future operation kinds must implement the same policy.
-- [ ] Persist recovery audit entries.
+- [x] Persist fail-closed `STARTED` and terminal recovery audit entries for create, reset, delete,
+  cleanup retry, and repair; preserve the recovery failure as primary if terminal audit persistence
+  also fails.
 - [~] Add admin operation list/show/retry/abort commands: non-loading asynchronous list/show are
   available with exact ID parsing, island filtering, bounded limits, expected versions, retry
   classification, and latest world-effect evidence; guarded retry/abort remain.
@@ -682,8 +684,10 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
 
 Goal: frequent state remains efficient while critical mutations are durable and traceable.
 
-- [ ] Add normalized audit log table.
-- [ ] Include operation ID, island ID, sequence, rule ID, player ID, type, timestamp, and outcome.
+- [x] Add append-only normalized audit log table with operation/island/event time indexes.
+- [x] Include optional operation ID, island ID, Magic Block sequence, rule ID, player ID, bounded
+  event type/detail, timestamp, and a constrained outcome vocabulary so server-scope events remain
+  representable without synthetic island identities.
 - [ ] Add dirty tracking for non-critical runtime state.
 - [ ] Add bounded write-behind queue.
 - [ ] Batch compatible counter and variable updates.
@@ -1117,9 +1121,10 @@ Migration numbering must remain append-only and checksummed.
 - [x] V12: restart-recoverable verified broken-island repair contexts.
 - [x] V13: durable operation expected-version, retry/ambiguity, error/diagnostic metadata, backfill,
   context synchronization, recent-operation index, and non-loading admin projections.
-- [ ] V14: rule execution policies and cooldown state.
-- [ ] V15: durable scheduled actions.
-- [ ] V16: audit logs and retention metadata.
+- [~] V14: normalized append-only operational audit log and recovery attempt entries are active;
+  retention metadata remains.
+- [ ] V15: rule execution policies and cooldown state.
+- [ ] V16: durable scheduled actions.
 - [ ] V17: structure/paste/cleanup operation receipts.
 - [ ] Later migrations: backup references, season state, and backend compatibility metadata.
 
@@ -1165,7 +1170,10 @@ Migration numbering must remain append-only and checksummed.
   the same `READY` state and clean shutdown without schema or projection drift. The operation
   diagnostics artifact then migrated that same V12 database through V13, reached `READY`, executed
   console-safe `/ob admin operation list` and exact-ID `show` queries asynchronously, reported empty
-  and not-found outcomes deterministically, and shut down cleanly with no severe log entries.
+  and not-found outcomes deterministically, and shut down cleanly with no severe log entries. The
+  recovery-audit artifact then migrated the same database through V14, published the five recovery
+  audit decorators before scanning pending work, reached `READY`, and completed another clean live
+  shutdown without schema, projection, or severe-log drift.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

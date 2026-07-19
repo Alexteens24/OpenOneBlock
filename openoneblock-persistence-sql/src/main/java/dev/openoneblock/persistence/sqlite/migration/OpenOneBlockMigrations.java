@@ -720,6 +720,42 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX operations_recent
                 ON operations (updated_at DESC, operation_id)
+                """)),
+        new SqlMigration(
+            14,
+            "normalized operational audit log",
+            List.of(
+                """
+                CREATE TABLE audit_log (
+                    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id TEXT,
+                    island_id TEXT,
+                    magicblock_sequence INTEGER CHECK (
+                        magicblock_sequence IS NULL OR magicblock_sequence >= 0
+                    ),
+                    rule_id TEXT,
+                    player_id TEXT,
+                    event_type TEXT NOT NULL CHECK (
+                        length(event_type) BETWEEN 1 AND 128
+                    ),
+                    occurred_at TEXT NOT NULL,
+                    outcome TEXT NOT NULL CHECK (
+                        outcome IN ('STARTED', 'SUCCEEDED', 'FAILED', 'AMBIGUOUS', 'REJECTED')
+                    ),
+                    detail TEXT CHECK (detail IS NULL OR length(detail) BETWEEN 1 AND 2048)
+                )
+                """,
+                """
+                CREATE INDEX audit_log_operation_time
+                ON audit_log (operation_id, occurred_at DESC, audit_id DESC)
+                """,
+                """
+                CREATE INDEX audit_log_island_time
+                ON audit_log (island_id, occurred_at DESC, audit_id DESC)
+                """,
+                """
+                CREATE INDEX audit_log_event_time
+                ON audit_log (event_type, occurred_at DESC, audit_id DESC)
                 """)));
   }
 }

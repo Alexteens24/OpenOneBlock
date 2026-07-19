@@ -21,6 +21,8 @@ import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
 import dev.openoneblock.core.recovery.BoundedRecoveryExecutor;
+import dev.openoneblock.core.recovery.RecoveryAuditService;
+import dev.openoneblock.core.recovery.RecoveryOperationIdentity;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.core.team.IslandRoleRegistry;
 import dev.openoneblock.core.team.IslandTeamPolicy;
@@ -54,6 +56,7 @@ import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandRepairRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandResetRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
+import dev.openoneblock.persistence.sqlite.operation.SqliteAuditLogWriter;
 import dev.openoneblock.persistence.sqlite.operation.SqliteIslandOperationQueryRepository;
 import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProtectionPublisher;
 import dev.openoneblock.persistence.sqlite.protection.SqliteIslandProtectionSnapshotSource;
@@ -277,6 +280,9 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               SqliteIslandOperationQueryRepository operationQueries =
                   new SqliteIslandOperationQueryRepository(
                       activeFactory, activeExecutors.database());
+              RecoveryAuditService recoveryAudit =
+                  new RecoveryAuditService(
+                      new SqliteAuditLogWriter(activeFactory, activeExecutors.database()), clock);
               PaperIslandCleanup islandCleanup =
                   new PaperIslandCleanup(plugin, plugin.getServer(), scheduler);
               CreateIslandService creationService =
@@ -367,16 +373,70 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               runtime = recovered;
               return repository
                   .findPendingCreationRequests()
-                  .thenCompose(pending -> recover(pending, creationService::recoverPending))
+                  .thenCompose(
+                      pending ->
+                          recover(
+                              pending,
+                              recoveryAudit,
+                              request ->
+                                  new RecoveryOperationIdentity(
+                                      request.operationId(),
+                                      request.islandId(),
+                                      request.ownerId(),
+                                      "ISLAND_CREATE"),
+                              creationService::recoverPending))
                   .thenCompose(ignored -> resetRepository.findPendingResets())
-                  .thenCompose(pending -> recover(pending, resetService::recoverPending))
+                  .thenCompose(
+                      pending ->
+                          recover(
+                              pending,
+                              recoveryAudit,
+                              request ->
+                                  new RecoveryOperationIdentity(
+                                      request.operationId(),
+                                      request.islandId(),
+                                      request.requestedBy(),
+                                      "ISLAND_RESET"),
+                              resetService::recoverPending))
                   .thenCompose(ignored -> deletionRepository.findPendingDeletions())
-                  .thenCompose(pending -> recover(pending, deletionService::recoverPending))
+                  .thenCompose(
+                      pending ->
+                          recover(
+                              pending,
+                              recoveryAudit,
+                              request ->
+                                  new RecoveryOperationIdentity(
+                                      request.operationId(),
+                                      request.islandId(),
+                                      request.requestedBy(),
+                                      "ISLAND_DELETE"),
+                              deletionService::recoverPending))
                   .thenCompose(ignored -> deletionRepository.findPendingCleanupRetries())
                   .thenCompose(
-                      pending -> recover(pending, deletionService::recoverPendingCleanupRetry))
+                      pending ->
+                          recover(
+                              pending,
+                              recoveryAudit,
+                              request ->
+                                  new RecoveryOperationIdentity(
+                                      request.operationId(),
+                                      request.islandId(),
+                                      request.requestedBy(),
+                                      "ISLAND_CLEANUP_RETRY"),
+                              deletionService::recoverPendingCleanupRetry))
                   .thenCompose(ignored -> repairRepository.findPendingRepairs())
-                  .thenCompose(pending -> recover(pending, repairService::recoverPending))
+                  .thenCompose(
+                      pending ->
+                          recover(
+                              pending,
+                              recoveryAudit,
+                              request ->
+                                  new RecoveryOperationIdentity(
+                                      request.operationId(),
+                                      request.islandId(),
+                                      request.requestedBy(),
+                                      "ISLAND_REPAIR"),
+                              repairService::recoverPending))
                   .thenCompose(ignored -> protectionSource.loadCommittedSnapshots())
                   .thenApply(
                       snapshots -> {
@@ -509,8 +569,14 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
   }
 
   private static <T, R> CompletionStage<List<R>> recover(
-      List<T> pending, Function<? super T, ? extends CompletionStage<? extends R>> recovery) {
-    return BoundedRecoveryExecutor.map(pending, MAXIMUM_CONCURRENT_RECOVERIES, recovery);
+      List<T> pending,
+      RecoveryAuditService audit,
+      Function<? super T, RecoveryOperationIdentity> identity,
+      Function<? super T, ? extends CompletionStage<? extends R>> recovery) {
+    return BoundedRecoveryExecutor.map(
+        pending,
+        MAXIMUM_CONCURRENT_RECOVERIES,
+        input -> audit.recover(identity.apply(input), () -> recovery.apply(input)));
   }
 
   private static <T> CompletionStage<List<T>> sequence(List<CompletionStage<T>> stages) {
