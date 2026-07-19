@@ -9,25 +9,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.openoneblock.api.grid.GridPosition;
 import dev.openoneblock.api.id.IslandId;
+import dev.openoneblock.api.id.NamespacedId;
 import dev.openoneblock.api.id.OperationId;
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.api.id.ShardGroupId;
+import dev.openoneblock.api.id.WorldId;
 import dev.openoneblock.api.island.IslandLifecycleState;
 import dev.openoneblock.core.grid.CoordinateRange;
 import dev.openoneblock.core.grid.GridConfiguration;
 import dev.openoneblock.core.grid.GridGeometry;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandCreationActivationRequest;
+import dev.openoneblock.core.island.IslandCreationContext;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
 import dev.openoneblock.core.island.IslandOptimisticLockException;
+import dev.openoneblock.core.island.IslandSpawnPoint;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.LocatorPublishDecision;
+import dev.openoneblock.core.magic.InitialMagicBlock;
 import dev.openoneblock.core.slot.SlotState;
+import dev.openoneblock.core.world.WorldBlockPosition;
+import dev.openoneblock.core.world.WorldEffectKey;
+import dev.openoneblock.core.world.WorldEffectPlan;
+import dev.openoneblock.core.world.WorldEffectState;
+import dev.openoneblock.core.world.WorldSpawnPosition;
 import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.slot.CommittedSlotPublicationException;
+import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -50,6 +62,7 @@ class SqliteIslandCreationRepositoryTest {
   private static final Instant REQUESTED_AT = Instant.parse("2026-07-19T03:00:00Z");
   private static final GridGeometry GEOMETRY =
       new GridGeometry(GridConfiguration.DEFAULT, new CoordinateRange(-30_000_000, 30_000_001));
+  private static final WorldId WORLD = WorldId.parse("00000000-0000-0000-0000-0000000000a1");
 
   @TempDir Path temporaryDirectory;
 
@@ -81,6 +94,8 @@ class SqliteIslandCreationRepositoryTest {
     assertEquals(1, count(context.factory(), "island_memberships"));
     assertEquals(1, count(context.factory(), "slots"));
     assertEquals(1, count(context.factory(), "operations"));
+    assertEquals(1, count(context.factory(), "island_creation_contexts"));
+    assertEquals(List.of(request), await(context.repository().findPendingCreationRequests()));
   }
 
   @Test
@@ -117,10 +132,10 @@ class SqliteIslandCreationRepositoryTest {
     assertEquals(request.operationId(), preparing.pendingOperationId().orElseThrow());
     assertEquals(List.of(preparing), await(context.repository().findPendingCreations()));
 
-    IslandCreationTransitionRequest activate =
-        transition(preparing, request.operationId(), IslandCreationStage.ACTIVATE);
-    IslandAggregateSnapshot active = await(context.repository().advanceCreation(activate));
-    IslandAggregateSnapshot duplicateActive = await(context.repository().advanceCreation(activate));
+    IslandCreationActivationRequest activate = activation(context, preparing, request, true);
+    IslandAggregateSnapshot active = await(context.repository().activateCreation(activate));
+    IslandAggregateSnapshot duplicateActive =
+        await(context.repository().activateCreation(activate));
 
     assertEquals(active, duplicateActive);
     assertEquals(IslandLifecycleState.ACTIVE, active.lifecycleState());
@@ -130,8 +145,12 @@ class SqliteIslandCreationRepositoryTest {
     assertTrue(active.pendingOperationId().isEmpty());
     assertTrue(await(context.repository().findPendingCreations()).isEmpty());
     assertEquals("COMPLETED", operationState(context.factory(), request.operationId()));
+    assertEquals("SUCCEEDED", operationOutcome(context.factory(), request.operationId()));
     assertEquals(1, count(context.factory(), "islands"));
     assertEquals(1, count(context.factory(), "slots"));
+    assertEquals(1, count(context.factory(), "island_spawn_points"));
+    assertEquals(1, count(context.factory(), "island_progression"));
+    assertEquals(1, count(context.factory(), "magic_blocks"));
   }
 
   @Test
@@ -139,8 +158,8 @@ class SqliteIslandCreationRepositoryTest {
     TestContext context = context("transition-guards.db", new InMemorySlotLocatorIndex(), GEOMETRY);
     IslandCreationRequest request = request(player("17e0ad75-b821-4cd1-a5d4-c0779a53f088"));
     IslandAggregateSnapshot allocated = await(context.repository().createAllocation(request));
-    IslandCreationTransitionRequest prematureActivation =
-        transition(allocated, request.operationId(), IslandCreationStage.ACTIVATE);
+    IslandCreationActivationRequest prematureActivation =
+        activation(context, allocated, request, false);
 
     CompletionException outOfOrder =
         assertThrows(
@@ -148,7 +167,7 @@ class SqliteIslandCreationRepositoryTest {
             () ->
                 context
                     .repository()
-                    .advanceCreation(prematureActivation)
+                    .activateCreation(prematureActivation)
                     .toCompletableFuture()
                     .join());
     assertInstanceOf(IslandCreationTransitionConflictException.class, outOfOrder.getCause());
@@ -160,19 +179,23 @@ class SqliteIslandCreationRepositoryTest {
                 .advanceCreation(
                     transition(
                         allocated, request.operationId(), IslandCreationStage.BEGIN_PREPARATION)));
-    IslandCreationTransitionRequest stale =
-        new IslandCreationTransitionRequest(
+    IslandCreationActivationRequest valid = activation(context, preparing, request, true);
+    IslandCreationActivationRequest stale =
+        new IslandCreationActivationRequest(
             request.islandId(),
             request.operationId(),
-            IslandCreationStage.ACTIVATE,
             0,
             0,
+            valid.primarySpawn(),
+            valid.magicBlock(),
+            valid.initialPhaseId(),
+            valid.requiredEffects(),
             REQUESTED_AT.plusSeconds(2));
 
     CompletionException staleFailure =
         assertThrows(
             CompletionException.class,
-            () -> context.repository().advanceCreation(stale).toCompletableFuture().join());
+            () -> context.repository().activateCreation(stale).toCompletableFuture().join());
     assertInstanceOf(IslandOptimisticLockException.class, staleFailure.getCause());
     assertEquals(preparing, await(context.repository().findById(request.islandId())).orElseThrow());
     assertEquals("PREPARING_WORLD", operationState(context.factory(), request.operationId()));
@@ -334,7 +357,22 @@ class SqliteIslandCreationRepositoryTest {
 
   private static IslandCreationRequest request(
       PlayerId playerId, IslandId islandId, OperationId operationId) {
-    return new IslandCreationRequest(islandId, playerId, SHARD, operationId, 64, 384, REQUESTED_AT);
+    return new IslandCreationRequest(
+        islandId,
+        playerId,
+        SHARD,
+        operationId,
+        64,
+        384,
+        new IslandCreationContext(
+            WORLD,
+            NamespacedId.parse("openoneblock:default"),
+            NamespacedId.parse("openoneblock:plains"),
+            NamespacedId.parse("minecraft:grass_block"),
+            64,
+            -64,
+            320),
+        REQUESTED_AT);
   }
 
   private static PlayerId player(String uuid) {
@@ -350,6 +388,54 @@ class SqliteIslandCreationRepositoryTest {
         snapshot.version(),
         snapshot.primarySlot().orElseThrow().version(),
         snapshot.updatedAt().plusSeconds(1));
+  }
+
+  private static IslandCreationActivationRequest activation(
+      TestContext context,
+      IslandAggregateSnapshot snapshot,
+      IslandCreationRequest creation,
+      boolean persistEffects) {
+    WorldBlockPosition block = new WorldBlockPosition(WORLD, 0, 64, 0);
+    WorldSpawnPosition spawn = new WorldSpawnPosition(WORLD, 0.5, 65, 0.5, 0, 0);
+    List<WorldEffectPlan> effects =
+        List.of(
+            new WorldEffectPlan.SetVanillaBlock(
+                new WorldEffectKey(creation.operationId(), 0),
+                creation.islandId(),
+                block,
+                NamespacedId.parse("minecraft:grass_block")),
+            new WorldEffectPlan.VerifySafeSpawn(
+                new WorldEffectKey(creation.operationId(), 1), creation.islandId(), spawn));
+    if (persistEffects) {
+      SqliteWorldEffectJournal journal =
+          new SqliteWorldEffectJournal(context.factory(), Runnable::run);
+      for (WorldEffectPlan effect : effects) {
+        journal.register(effect, REQUESTED_AT).toCompletableFuture().join();
+        journal.markDispatched(effect, REQUESTED_AT.plusSeconds(1)).toCompletableFuture().join();
+        journal
+            .recordOutcome(
+                effect,
+                WorldEffectState.VERIFIED_SUCCESS,
+                "test effect verified",
+                REQUESTED_AT.plusSeconds(2))
+            .toCompletableFuture()
+            .join();
+      }
+    }
+    return new IslandCreationActivationRequest(
+        creation.islandId(),
+        creation.operationId(),
+        snapshot.version(),
+        snapshot.primarySlot().orElseThrow().version(),
+        new IslandSpawnPoint(NamespacedId.parse("openoneblock:home"), spawn, true),
+        new InitialMagicBlock(
+            NamespacedId.parse("openoneblock:main"),
+            block,
+            NamespacedId.parse("openoneblock:default"),
+            NamespacedId.parse("minecraft:grass_block")),
+        NamespacedId.parse("openoneblock:plains"),
+        effects.stream().map(WorldEffectPlan::key).toList(),
+        REQUESTED_AT.plusSeconds(3));
   }
 
   private static <T> T await(CompletionStage<T> stage) throws Exception {
@@ -368,7 +454,16 @@ class SqliteIslandCreationRepositoryTest {
   }
 
   private static int count(SqliteConnectionFactory factory, String table) throws Exception {
-    if (!List.of("islands", "island_memberships", "slots", "operations").contains(table)) {
+    if (!List.of(
+            "islands",
+            "island_memberships",
+            "slots",
+            "operations",
+            "island_creation_contexts",
+            "island_spawn_points",
+            "island_progression",
+            "magic_blocks")
+        .contains(table)) {
       throw new IllegalArgumentException("unexpected table");
     }
     try (Connection connection = factory.open();
@@ -384,6 +479,20 @@ class SqliteIslandCreationRepositoryTest {
     try (Connection connection = factory.open();
         var statement =
             connection.prepareStatement("SELECT state FROM operations WHERE operation_id = ?")) {
+      statement.setString(1, operationId.toString());
+      try (ResultSet result = statement.executeQuery()) {
+        assertTrue(result.next());
+        return result.getString(1);
+      }
+    }
+  }
+
+  private static String operationOutcome(SqliteConnectionFactory factory, OperationId operationId)
+      throws Exception {
+    try (Connection connection = factory.open();
+        var statement =
+            connection.prepareStatement(
+                "SELECT outcome_state FROM operations WHERE operation_id = ?")) {
       statement.setString(1, operationId.toString());
       try (ResultSet result = statement.executeQuery()) {
         assertTrue(result.next());

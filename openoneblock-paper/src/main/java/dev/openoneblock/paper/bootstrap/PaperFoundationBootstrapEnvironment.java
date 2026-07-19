@@ -1,9 +1,11 @@
 package dev.openoneblock.paper.bootstrap;
 
+import dev.openoneblock.api.id.NamespacedId;
 import dev.openoneblock.api.id.WorldId;
 import dev.openoneblock.core.execution.IslandExecutionLanes;
 import dev.openoneblock.core.grid.CoordinateRange;
 import dev.openoneblock.core.grid.GridGeometry;
+import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldEnvironment;
@@ -37,6 +39,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -156,48 +159,62 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               IslandCreationRepository repository =
                   new SqliteIslandCreationRepository(
                       activeFactory, geometryByShard, locator, activeExecutors.database());
+              IslandExecutionLanes lanes =
+                  new IslandExecutionLanes(
+                      activeExecutors.computation(), MAXIMUM_IN_FLIGHT_PER_ISLAND);
+              PaperIslandChunkTicketController ticketController =
+                  new PaperIslandChunkTicketController(plugin, plugin.getServer(), scheduler);
+              IslandRuntimeManager runtimeManager =
+                  new IslandRuntimeManager(
+                      ticketController,
+                      Duration.ofSeconds(configuration.operations().creationTimeoutSeconds()));
+              SqliteWorldEffectJournal effectJournal =
+                  new SqliteWorldEffectJournal(activeFactory, activeExecutors.database());
+              Clock clock = Clock.systemUTC();
+              WorldPreparationCoordinator preparationCoordinator =
+                  new WorldPreparationCoordinator(
+                      effectJournal,
+                      new PaperIslandWorldPreparation(
+                          plugin.getServer(), scheduler, new UnavailableIslandStructurePlacement()),
+                      clock);
+              int minimumY = configuration.buildHeight().minimumY();
+              int maximumYExclusive = configuration.buildHeight().maximumYExclusive();
+              int magicBlockY = Math.max(minimumY, Math.min(64, maximumYExclusive - 2));
+              NamespacedId starterBlock =
+                  NamespacedId.of(
+                      "minecraft",
+                      configuration.magicBlock().starterMaterial().toLowerCase(Locale.ROOT));
+              CreateIslandService creationService =
+                  new CreateIslandService(
+                      repository,
+                      lanes,
+                      runtimeManager,
+                      activeWorlds,
+                      geometryByShard,
+                      starterBlock,
+                      magicBlockY,
+                      minimumY,
+                      maximumYExclusive,
+                      preparationCoordinator,
+                      clock);
+              FoundationRuntime recovered =
+                  new FoundationRuntime(
+                      configuration,
+                      activeWorlds,
+                      locator,
+                      repository,
+                      lanes,
+                      runtimeManager,
+                      effectJournal,
+                      preparationCoordinator,
+                      creationService);
+              chunkTickets = ticketController;
+              runtime = recovered;
               return repository
-                  .findPendingCreations()
-                  .thenApply(
-                      pending -> {
-                        if (!pending.isEmpty()) {
-                          throw new PendingIslandRecoveryException(pending);
-                        }
-                        IslandExecutionLanes lanes =
-                            new IslandExecutionLanes(
-                                activeExecutors.computation(), MAXIMUM_IN_FLIGHT_PER_ISLAND);
-                        PaperIslandChunkTicketController ticketController =
-                            new PaperIslandChunkTicketController(
-                                plugin, plugin.getServer(), scheduler);
-                        IslandRuntimeManager runtimeManager =
-                            new IslandRuntimeManager(
-                                ticketController,
-                                Duration.ofSeconds(
-                                    configuration.operations().creationTimeoutSeconds()));
-                        SqliteWorldEffectJournal effectJournal =
-                            new SqliteWorldEffectJournal(activeFactory, activeExecutors.database());
-                        WorldPreparationCoordinator preparationCoordinator =
-                            new WorldPreparationCoordinator(
-                                effectJournal,
-                                new PaperIslandWorldPreparation(
-                                    plugin.getServer(),
-                                    scheduler,
-                                    new UnavailableIslandStructurePlacement()),
-                                Clock.systemUTC());
-                        FoundationRuntime recovered =
-                            new FoundationRuntime(
-                                configuration,
-                                activeWorlds,
-                                locator,
-                                repository,
-                                lanes,
-                                runtimeManager,
-                                effectJournal,
-                                preparationCoordinator);
-                        chunkTickets = ticketController;
-                        runtime = recovered;
-                        return recovered;
-                      });
+                  .findPendingCreationRequests()
+                  .thenCompose(
+                      pending -> sequence(pending.stream().map(creationService::resume).toList()))
+                  .thenApply(ignored -> recovered);
             });
   }
 

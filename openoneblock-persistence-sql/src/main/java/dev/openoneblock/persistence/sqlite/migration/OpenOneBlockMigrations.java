@@ -229,6 +229,111 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX world_effect_receipts_island
                 ON world_effect_receipts (island_id, operation_id, effect_index)
+                """)),
+        new SqlMigration(
+            5,
+            "creation outcomes spawn and initial progression",
+            List.of(
+                """
+                ALTER TABLE operations ADD COLUMN request_fingerprint TEXT
+                    CHECK (request_fingerprint IS NULL OR length(request_fingerprint) = 64)
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN outcome_state TEXT
+                    CHECK (outcome_state IS NULL OR outcome_state IN ('SUCCEEDED', 'FAILED', 'AMBIGUOUS'))
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN outcome_payload TEXT
+                """,
+                """
+                ALTER TABLE operations ADD COLUMN completed_at TEXT
+                """,
+                """
+                ALTER TABLE islands ADD COLUMN lifecycle_lock_reason TEXT
+                """,
+                """
+                CREATE TABLE island_creation_contexts (
+                    operation_id TEXT PRIMARY KEY REFERENCES operations (operation_id),
+                    primary_world_id TEXT NOT NULL,
+                    profile_id TEXT NOT NULL,
+                    phase_id TEXT NOT NULL,
+                    starter_block_id TEXT NOT NULL,
+                    magic_block_y INTEGER NOT NULL,
+                    minimum_y INTEGER NOT NULL,
+                    maximum_y_exclusive INTEGER NOT NULL,
+                    CHECK (minimum_y < maximum_y_exclusive),
+                    CHECK (
+                        magic_block_y >= minimum_y
+                        AND magic_block_y < maximum_y_exclusive - 1
+                    )
+                )
+                """,
+                """
+                CREATE TABLE island_spawn_points (
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    spawn_id TEXT NOT NULL,
+                    world_id TEXT NOT NULL,
+                    x REAL NOT NULL,
+                    y REAL NOT NULL,
+                    z REAL NOT NULL,
+                    yaw REAL NOT NULL,
+                    pitch REAL NOT NULL,
+                    primary_spawn INTEGER NOT NULL CHECK (primary_spawn IN (0, 1)),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (island_id, spawn_id)
+                )
+                """,
+                """
+                CREATE UNIQUE INDEX island_spawn_points_one_primary
+                ON island_spawn_points (island_id)
+                WHERE primary_spawn = 1
+                """,
+                """
+                CREATE TABLE island_progression (
+                    island_id TEXT PRIMARY KEY REFERENCES islands (island_id),
+                    current_phase_id TEXT NOT NULL,
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE INDEX operations_recovery_state
+                ON operations (kind, state, updated_at)
+                """)),
+        new SqlMigration(
+            6,
+            "magic blocks and sequence identity",
+            List.of(
+                """
+                CREATE TABLE magic_blocks (
+                    island_id TEXT NOT NULL REFERENCES islands (island_id),
+                    magic_block_id TEXT NOT NULL,
+                    world_id TEXT NOT NULL,
+                    block_x INTEGER NOT NULL,
+                    block_y INTEGER NOT NULL,
+                    block_z INTEGER NOT NULL,
+                    profile_id TEXT NOT NULL,
+                    current_content_id TEXT,
+                    state TEXT NOT NULL CHECK (
+                        state IN ('READY', 'REGENERATING', 'COOLDOWN', 'LOCKED', 'BROKEN')
+                    ),
+                    sequence INTEGER NOT NULL CHECK (sequence >= 0),
+                    last_persisted_sequence INTEGER NOT NULL CHECK (
+                        last_persisted_sequence >= 0 AND last_persisted_sequence <= sequence
+                    ),
+                    cooldown_until TEXT,
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (island_id, magic_block_id),
+                    UNIQUE (world_id, block_x, block_y, block_z)
+                )
+                """,
+                """
+                CREATE INDEX magic_blocks_recovery_state
+                ON magic_blocks (state, updated_at)
                 """)));
   }
 }

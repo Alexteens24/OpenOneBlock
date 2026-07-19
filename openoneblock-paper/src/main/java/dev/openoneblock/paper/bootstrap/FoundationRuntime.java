@@ -1,6 +1,7 @@
 package dev.openoneblock.paper.bootstrap;
 
 import dev.openoneblock.core.execution.IslandExecutionLanes;
+import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
@@ -21,6 +22,7 @@ import java.util.Objects;
  * @param islandRuntimes reference-counted island chunk lifecycle manager
  * @param worldEffects authoritative durable world-effect evidence
  * @param worldPreparation durable-before-dispatch preparation coordinator
+ * @param islandCreation complete idempotent island creation application service
  */
 public record FoundationRuntime(
     FoundationConfigurationSnapshot configuration,
@@ -30,7 +32,8 @@ public record FoundationRuntime(
     IslandExecutionLanes islandLanes,
     IslandRuntimeManager islandRuntimes,
     WorldEffectJournal worldEffects,
-    WorldPreparationCoordinator worldPreparation) {
+    WorldPreparationCoordinator worldPreparation,
+    CreateIslandService islandCreation) {
   /** Validates the complete recovered service graph. */
   public FoundationRuntime {
     Objects.requireNonNull(configuration, "configuration");
@@ -41,5 +44,6 @@ public record FoundationRuntime(
     Objects.requireNonNull(islandRuntimes, "islandRuntimes");
     Objects.requireNonNull(worldEffects, "worldEffects");
     Objects.requireNonNull(worldPreparation, "worldPreparation");
+    Objects.requireNonNull(islandCreation, "islandCreation");
   }
 }

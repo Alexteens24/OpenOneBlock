@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 156 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 161 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -113,18 +113,26 @@ register `/oneblock` commands or gameplay listeners.
   intent-conflict detection and database-enforced evidence-state invariants.
 - [x] Minimal Paper starter preparation using region-owned exact Vanilla block mutation, thread-safe
   chunk snapshots for asynchronous clean-cell verification, and safe-spawn verification.
+- [x] Atomic creation activation projections for primary spawn, initial progression, and the first
+  sequence-zero Magic Block, guarded by verified world-effect evidence.
+- [x] Complete idempotent `CreateIslandService` success path with bounded island-lane admission,
+  reference-counted chunk tickets, durable creation context, exact restart replay, and atomic
+  activation.
+- [x] Startup recovery now replays persisted `ALLOCATING` and `CREATING` intents from their original
+  world/profile/phase/starter/build-height context before publishing `READY`.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
 ### Partially implemented areas
 
-- [~] Island creation: database stages exist, but no application coordinator performs world work.
-- [~] Crash recovery: startup detects unfinished creations and fails closed, but the decision engine
-  does not yet resume, roll back, or mark them `BROKEN`.
+- [~] Island creation: the successful path is complete; cleanup, quarantine, post-activation
+  teleport, and event publication remain.
+- [~] Crash recovery: successful pending creations resume automatically; failed or ambiguous world
+  preparation still needs cleanup/release/quarantine decisions.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
-- [~] Island aggregate: persisted creation header exists; members, spawn points, progression, Magic
-  Blocks, upgrades, counters, and variables remain to be added.
+- [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, and
+  the first Magic Block are persisted; broader members, upgrades, counters, and variables remain.
 
 ## Global definition of done
 
@@ -364,21 +372,22 @@ Block setup before depending on WorldEdit.
 
 Goal: complete `/ob create` semantics from membership validation through activation.
 
-- [ ] Add `CreateIslandService` running inside the island lane after identity creation.
-- [ ] Accept caller-supplied clock, island ID, operation ID, owner ID, and selected profile.
-- [ ] Atomically allocate island, owner membership, slot, and durable operation.
-- [ ] Transition to `CREATING/PREPARING` before the first world effect.
-- [ ] Acquire required chunk tickets.
+- [x] Add `CreateIslandService` running inside the island lane after identity creation.
+- [x] Accept caller-supplied clock, island ID, operation ID, owner ID, and selected profile.
+- [x] Atomically allocate island, owner membership, slot, and durable operation.
+- [x] Transition to `CREATING/PREPARING` before the first world effect.
+- [x] Acquire required chunk tickets.
 - [ ] Clear residue when policy requires it.
-- [ ] Apply starter content through the preparation port.
-- [ ] Create the first Magic Block record and world block.
-- [ ] Persist spawn point, phase, counters, and variables.
-- [ ] Verify border, spawn, Magic Block, and slot ownership.
-- [ ] Transition island and slot to `ACTIVE` atomically.
-- [ ] Publish locator state only after commit.
+- [x] Apply starter content through the preparation port.
+- [x] Create the first Magic Block record and world block.
+- [~] Persist spawn point, phase, counters, and variables. Spawn/phase are persisted atomically;
+  normalized counters and typed variables remain in V7.
+- [x] Verify border, spawn, Magic Block, and slot ownership.
+- [x] Transition island and slot to `ACTIVE` atomically.
+- [x] Publish locator state only after commit.
 - [ ] Teleport the owner only after activation.
 - [ ] Publish immutable `IslandCreatedEvent` after successful activation.
-- [ ] Return stored outcome on duplicate operation ID.
+- [x] Return stored outcome on duplicate operation ID.
 
 ### Failure policy
 
@@ -390,10 +399,11 @@ Goal: complete `/ob create` semantics from membership validation through activat
 
 ### Acceptance tests
 
-- [ ] Two simultaneous creates for one player yield one active membership and no leaked slot.
-- [ ] Duplicate operation replay returns the same island without another teleport/event.
-- [ ] Restart at every durable phase resumes the correct next step.
-- [ ] Paste/place failure cannot activate the island.
+- [x] Two simultaneous creates for one player yield one active membership and no leaked slot.
+- [~] Duplicate operation replay returns the same island and skips world work; teleport/event adapters
+  do not exist yet.
+- [x] Restart at every currently durable creation phase resumes the correct next step.
+- [x] Paste/place failure cannot activate the island.
 - [ ] Cleanup uncertainty quarantines the slot.
 
 ## Milestone 7 — Commands and minimal player workflow (`P0`)
@@ -1015,9 +1025,9 @@ Migration numbering must remain append-only and checksummed.
 - [x] V2: islands and active memberships.
 - [x] V3: persisted world projections and geometry fingerprints.
 - [x] V4: durable world-effect plans, dispatch evidence, outcomes, and recovery indexes.
-- [ ] V5: operation request fingerprints/outcomes plus island spawn points, settings, and lifecycle
-  lock metadata.
-- [ ] V6: Magic Blocks and sequence uniqueness.
+- [x] V5: operation request fingerprints/outcomes, durable creation replay context, island spawn
+  points, initial progression, and lifecycle lock metadata.
+- [x] V6: Magic Blocks and sequence uniqueness.
 - [ ] V7: normalized counters and typed variables.
 - [ ] V8: phases, upgrades, and progression state.
 - [ ] V9: rule execution policies and cooldown state.
@@ -1048,9 +1058,9 @@ Migration numbering must remain append-only and checksummed.
 - Verify correct global/region/entity/async scheduler routing.
 - Verify no world mutation executes before ownership dispatch.
 - Verify void-world creator options and existing-world fail-closed checks.
-- Latest manual smoke: Paper 1.21.11 build 132, an existing foundation database migrated through V4,
-  restart reused the persisted world projection, reached `READY`, and bounded shutdown completed
-  without plugin errors.
+- Latest manual smoke: Paper 1.21.11 build 132 on Java 21, an existing foundation database migrated
+  from V4 through V6, restart reused the persisted world projection, reached `READY`, and bounded
+  shutdown completed without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

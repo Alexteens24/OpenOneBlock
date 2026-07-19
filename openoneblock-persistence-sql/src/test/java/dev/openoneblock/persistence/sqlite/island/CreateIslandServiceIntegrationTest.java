@@ -1,0 +1,380 @@
+package dev.openoneblock.persistence.sqlite.island;
+
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.openoneblock.api.id.DimensionId;
+import dev.openoneblock.api.id.IslandId;
+import dev.openoneblock.api.id.NamespacedId;
+import dev.openoneblock.api.id.OperationId;
+import dev.openoneblock.api.id.PlayerId;
+import dev.openoneblock.api.id.ShardGroupId;
+import dev.openoneblock.api.id.WorldId;
+import dev.openoneblock.api.island.IslandLifecycleState;
+import dev.openoneblock.core.execution.IslandExecutionLanes;
+import dev.openoneblock.core.grid.CoordinateRange;
+import dev.openoneblock.core.grid.GridConfiguration;
+import dev.openoneblock.core.grid.GridGeometry;
+import dev.openoneblock.core.island.CreateIslandCommand;
+import dev.openoneblock.core.island.CreateIslandRejectedException;
+import dev.openoneblock.core.island.CreateIslandResult;
+import dev.openoneblock.core.island.CreateIslandService;
+import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandCreationContext;
+import dev.openoneblock.core.island.IslandCreationRepository;
+import dev.openoneblock.core.island.IslandCreationRequest;
+import dev.openoneblock.core.island.IslandCreationStage;
+import dev.openoneblock.core.island.IslandCreationTransitionRequest;
+import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
+import dev.openoneblock.core.locator.WorldProjection;
+import dev.openoneblock.core.locator.WorldProjectionRegistry;
+import dev.openoneblock.core.runtime.IslandChunkTicketController;
+import dev.openoneblock.core.runtime.IslandChunkTicketLease;
+import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.world.IslandWorldPreparation;
+import dev.openoneblock.core.world.WorldEffectOutcome;
+import dev.openoneblock.core.world.WorldEffectPlan;
+import dev.openoneblock.core.world.WorldPreparationCoordinator;
+import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
+import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
+import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class CreateIslandServiceIntegrationTest {
+  private static final ShardGroupId SHARD = ShardGroupId.parse("openoneblock:primary");
+  private static final WorldId WORLD = WorldId.parse("00000000-0000-0000-0000-0000000000c6");
+  private static final Instant NOW = Instant.parse("2026-07-19T08:00:00Z");
+  private static final GridGeometry GEOMETRY =
+      new GridGeometry(GridConfiguration.DEFAULT, new CoordinateRange(-30_000_000, 30_000_001));
+
+  @TempDir Path temporaryDirectory;
+
+  @Test
+  void createsCompleteActiveIslandAndDuplicateReplayHasNoSideEffects() throws Exception {
+    RecordingWorld world = new RecordingWorld();
+    RecordingTickets tickets = new RecordingTickets();
+    TestContext context = context("successful.db", world, tickets);
+    CreateIslandCommand command = command(player("3e3ac656-cacc-426f-9144-c1666ee52b36"));
+
+    CreateIslandResult created = await(context.service().create(command));
+    CreateIslandResult replayed = await(context.service().create(command));
+
+    assertEquals(IslandLifecycleState.ACTIVE, created.island().lifecycleState());
+    assertTrue(!created.replay());
+    assertTrue(replayed.replay());
+    assertEquals(created.island(), replayed.island());
+    assertEquals(3, world.executions.get());
+    assertEquals(1, tickets.acquisitions.get());
+    assertEquals(1, tickets.releases.get());
+    assertEquals(0, context.runtimes().loadedChunkCount());
+    assertEquals(1, count(context.factory(), "island_spawn_points"));
+    assertEquals(1, count(context.factory(), "island_progression"));
+    assertEquals(1, count(context.factory(), "magic_blocks"));
+    assertEquals(3, count(context.factory(), "world_effect_receipts"));
+  }
+
+  @Test
+  void restartResumesOriginalDurableIntentFromAllocatingAndCreating() throws Exception {
+    for (boolean beginPreparation : List.of(false, true)) {
+      String database = beginPreparation ? "resume-creating.db" : "resume-allocating.db";
+      RecordingWorld initialWorld = new RecordingWorld();
+      RecordingTickets initialTickets = new RecordingTickets();
+      TestContext initial = context(database, initialWorld, initialTickets);
+      IslandCreationRequest request = request(player(UUID.randomUUID().toString()));
+      IslandAggregateSnapshot pending = await(initial.repository().createAllocation(request));
+      if (beginPreparation) {
+        pending =
+            await(
+                initial
+                    .repository()
+                    .advanceCreation(
+                        new IslandCreationTransitionRequest(
+                            pending.islandId(),
+                            request.operationId(),
+                            IslandCreationStage.BEGIN_PREPARATION,
+                            pending.version(),
+                            pending.primarySlot().orElseThrow().version(),
+                            NOW.plusSeconds(1))));
+      }
+      assertTrue(pending.lifecycleState() != IslandLifecycleState.ACTIVE);
+
+      RecordingWorld restartedWorld = new RecordingWorld();
+      RecordingTickets restartedTickets = new RecordingTickets();
+      TestContext restarted = context(database, restartedWorld, restartedTickets);
+      List<IslandCreationRequest> recovered =
+          await(restarted.repository().findPendingCreationRequests());
+
+      assertEquals(List.of(request), recovered);
+      CreateIslandResult result = await(restarted.service().resume(recovered.getFirst()));
+      assertEquals(IslandLifecycleState.ACTIVE, result.island().lifecycleState());
+      assertEquals(3, restartedWorld.executions.get());
+      assertEquals(1, restartedTickets.releases.get());
+      assertTrue(await(restarted.repository().findPendingCreationRequests()).isEmpty());
+    }
+  }
+
+  @Test
+  void verifiedWorldFailureCannotActivateAndAlwaysReleasesTickets() throws Exception {
+    RecordingWorld world = new RecordingWorld();
+    world.failEffectIndex = 1;
+    RecordingTickets tickets = new RecordingTickets();
+    TestContext context = context("world-failure.db", world, tickets);
+    CreateIslandCommand command = command(player("3f058b52-a160-4c4f-9e00-2c2713810c58"));
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () -> context.service().create(command).toCompletableFuture().join());
+
+    assertInstanceOf(IllegalStateException.class, failure.getCause());
+    IslandAggregateSnapshot persisted =
+        await(context.repository().findById(command.islandId())).orElseThrow();
+    assertEquals(IslandLifecycleState.CREATING, persisted.lifecycleState());
+    assertEquals(1, tickets.acquisitions.get());
+    assertEquals(1, tickets.releases.get());
+    assertEquals(0, count(context.factory(), "magic_blocks"));
+    assertEquals(0, count(context.factory(), "island_spawn_points"));
+  }
+
+  @Test
+  void simultaneousCreatesForOneOwnerYieldOneActiveIslandWithoutLeakedSlot() throws Exception {
+    TestContext context = context("service-race.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("156e4345-967f-48e6-8111-17e120fe915d");
+    CreateIslandCommand first = command(owner);
+    CreateIslandCommand second = command(owner);
+    var callers = Executors.newFixedThreadPool(2);
+    try {
+      CompletableFuture<CreateIslandResult> firstResult =
+          CompletableFuture.supplyAsync(
+              () -> context.service().create(first).toCompletableFuture().join(), callers);
+      CompletableFuture<CreateIslandResult> secondResult =
+          CompletableFuture.supplyAsync(
+              () -> context.service().create(second).toCompletableFuture().join(), callers);
+      List<CompletableFuture<CreateIslandResult>> attempts = List.of(firstResult, secondResult);
+
+      long successes =
+          attempts.stream()
+              .filter(
+                  attempt -> {
+                    try {
+                      attempt.join();
+                      return true;
+                    } catch (CompletionException ignored) {
+                      return false;
+                    }
+                  })
+              .count();
+
+      assertEquals(1, successes);
+      assertEquals(1, count(context.factory(), "islands"));
+      assertEquals(1, count(context.factory(), "magic_blocks"));
+      assertEquals(1, count(context.factory(), "island_spawn_points"));
+      assertTrue(await(context.repository().findByActiveMember(owner)).isPresent());
+    } finally {
+      callers.shutdownNow();
+    }
+  }
+
+  @Test
+  void unknownWorldAndStoppedLaneRejectBeforeAllocation() throws Exception {
+    TestContext context = context("admission.db", new RecordingWorld(), new RecordingTickets());
+    CreateIslandCommand base = command(player("f705316a-8fe7-4619-bb0b-96207119fcb5"));
+    CreateIslandCommand unknown =
+        new CreateIslandCommand(
+            base.islandId(),
+            base.operationId(),
+            base.ownerId(),
+            base.shardGroupId(),
+            WorldId.of(UUID.randomUUID()),
+            base.profileId(),
+            base.phaseId());
+
+    assertThrows(
+        CompletionException.class,
+        () -> context.service().create(unknown).toCompletableFuture().join());
+    assertEquals(0, count(context.factory(), "islands"));
+
+    await(context.lanes().shutdownGracefully());
+    CompletionException stopped =
+        assertThrows(
+            CompletionException.class,
+            () ->
+                context
+                    .service()
+                    .create(command(player("1ec50621-5073-44ef-aad0-239d51d04418")))
+                    .toCompletableFuture()
+                    .join());
+    assertInstanceOf(CreateIslandRejectedException.class, stopped.getCause());
+    assertEquals(0, count(context.factory(), "islands"));
+  }
+
+  private TestContext context(String databaseName, RecordingWorld world, RecordingTickets tickets) {
+    SqliteConnectionFactory factory =
+        new SqliteConnectionFactory(temporaryDirectory.resolve(databaseName), 100);
+    new SqliteSchemaMigrator(factory).migrate();
+    InMemorySlotLocatorIndex locator = new InMemorySlotLocatorIndex();
+    IslandCreationRepository repository =
+        new SqliteIslandCreationRepository(factory, ignored -> GEOMETRY, locator, Runnable::run);
+    SqliteWorldEffectJournal journal = new SqliteWorldEffectJournal(factory, Runnable::run);
+    IslandExecutionLanes lanes = new IslandExecutionLanes(Runnable::run, 8);
+    IslandRuntimeManager runtimes = new IslandRuntimeManager(tickets, Duration.ofSeconds(2));
+    WorldProjectionRegistry projections =
+        new WorldProjectionRegistry(
+            List.of(
+                new WorldProjection(WORLD, SHARD, DimensionId.parse("openoneblock:overworld"))));
+    WorldPreparationCoordinator preparation =
+        new WorldPreparationCoordinator(journal, world, Clock.fixed(NOW, ZoneOffset.UTC));
+    CreateIslandService service =
+        new CreateIslandService(
+            repository,
+            lanes,
+            runtimes,
+            projections,
+            ignored -> GEOMETRY,
+            NamespacedId.parse("minecraft:grass_block"),
+            64,
+            -64,
+            320,
+            preparation,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+    return new TestContext(factory, repository, lanes, runtimes, service);
+  }
+
+  private static CreateIslandCommand command(PlayerId owner) {
+    return new CreateIslandCommand(
+        IslandId.generate(),
+        OperationId.generate(),
+        owner,
+        SHARD,
+        WORLD,
+        NamespacedId.parse("openoneblock:default"),
+        NamespacedId.parse("openoneblock:plains"));
+  }
+
+  private static IslandCreationRequest request(PlayerId owner) {
+    CreateIslandCommand command = command(owner);
+    return new IslandCreationRequest(
+        command.islandId(),
+        owner,
+        SHARD,
+        command.operationId(),
+        64,
+        384,
+        new IslandCreationContext(
+            WORLD,
+            command.profileId(),
+            command.phaseId(),
+            NamespacedId.parse("minecraft:grass_block"),
+            64,
+            -64,
+            320),
+        NOW);
+  }
+
+  private static PlayerId player(String uuid) {
+    return PlayerId.of(UUID.fromString(uuid));
+  }
+
+  private static <T> T await(CompletionStage<T> stage) throws Exception {
+    return stage.toCompletableFuture().get(5, SECONDS);
+  }
+
+  private static int count(SqliteConnectionFactory factory, String table) throws Exception {
+    if (!List.of(
+            "islands",
+            "island_spawn_points",
+            "island_progression",
+            "magic_blocks",
+            "world_effect_receipts")
+        .contains(table)) {
+      throw new IllegalArgumentException("unexpected table");
+    }
+    try (Connection connection = factory.open();
+        Statement statement = connection.createStatement();
+        ResultSet result = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+      assertTrue(result.next());
+      return result.getInt(1);
+    }
+  }
+
+  private record TestContext(
+      SqliteConnectionFactory factory,
+      IslandCreationRepository repository,
+      IslandExecutionLanes lanes,
+      IslandRuntimeManager runtimes,
+      CreateIslandService service) {}
+
+  private static final class RecordingWorld implements IslandWorldPreparation {
+    private final AtomicInteger executions = new AtomicInteger();
+    private int failEffectIndex = -1;
+
+    @Override
+    public CompletionStage<WorldEffectOutcome> execute(WorldEffectPlan effect) {
+      executions.incrementAndGet();
+      if (effect.key().effectIndex() == failEffectIndex) {
+        return CompletableFuture.completedFuture(
+            new WorldEffectOutcome(
+                WorldEffectOutcome.Status.VERIFIED_FAILURE,
+                effect.kind().mutatesWorld(),
+                "intentional test failure"));
+      }
+      return CompletableFuture.completedFuture(
+          new WorldEffectOutcome(
+              WorldEffectOutcome.Status.VERIFIED_SUCCESS, false, "test effect verified"));
+    }
+
+    @Override
+    public CompletionStage<WorldEffectOutcome> verify(WorldEffectPlan effect) {
+      return CompletableFuture.completedFuture(
+          new WorldEffectOutcome(
+              WorldEffectOutcome.Status.NOT_APPLIED, false, "test effect not applied"));
+    }
+  }
+
+  private static final class RecordingTickets implements IslandChunkTicketController {
+    private final AtomicInteger acquisitions = new AtomicInteger();
+    private final AtomicInteger releases = new AtomicInteger();
+
+    @Override
+    public CompletionStage<IslandChunkTicketLease> acquire(
+        dev.openoneblock.core.runtime.IslandChunkTicketRequest request) {
+      acquisitions.incrementAndGet();
+      AtomicBoolean released = new AtomicBoolean();
+      return CompletableFuture.completedFuture(
+          new IslandChunkTicketLease() {
+            @Override
+            public int chunkCount() {
+              return request.chunks().size();
+            }
+
+            @Override
+            public CompletionStage<Void> release() {
+              if (released.compareAndSet(false, true)) {
+                releases.incrementAndGet();
+              }
+              return CompletableFuture.completedFuture(null);
+            }
+          });
+    }
+  }
+}

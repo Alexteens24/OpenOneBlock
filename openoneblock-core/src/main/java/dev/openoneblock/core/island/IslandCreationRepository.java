@@ -25,6 +25,15 @@ public interface IslandCreationRepository {
   CompletionStage<IslandAggregateSnapshot> advanceCreation(IslandCreationTransitionRequest request);
 
   /**
+   * Atomically inserts verified spawn/progression/Magic Block projections and activates ownership.
+   *
+   * @param request optimistic complete activation request
+   * @return committed active aggregate
+   */
+  CompletionStage<IslandAggregateSnapshot> activateCreation(
+      IslandCreationActivationRequest request);
+
+  /**
    * Reads one authoritative island snapshot without loading world state.
    *
    * @param islandId island identity
@@ -46,4 +55,11 @@ public interface IslandCreationRepository {
    * @return allocating or creating islands ordered by creation time and identity
    */
   CompletionStage<List<IslandAggregateSnapshot>> findPendingCreations();
+
+  /**
+   * Lists complete durable creation intents that can be replayed after restart.
+   *
+   * @return pending requests ordered by creation time and identity
+   */
+  CompletionStage<List<IslandCreationRequest>> findPendingCreationRequests();
 }

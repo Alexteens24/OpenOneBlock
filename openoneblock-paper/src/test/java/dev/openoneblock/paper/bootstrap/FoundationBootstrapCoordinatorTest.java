@@ -7,9 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.openoneblock.api.id.IslandId;
+import dev.openoneblock.api.id.NamespacedId;
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.core.execution.IslandExecutionLanes;
+import dev.openoneblock.core.grid.CoordinateRange;
+import dev.openoneblock.core.grid.GridGeometry;
+import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandCreationActivationRequest;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
@@ -147,12 +152,9 @@ class FoundationBootstrapCoordinatorTest {
 
   private static FoundationRuntime runtime(FoundationConfigurationSnapshot configuration) {
     WorldEffectJournal worldEffects = unavailableWorldEffects();
-    return new FoundationRuntime(
-        configuration,
-        new WorldProjectionRegistry(List.of()),
-        new InMemorySlotLocatorIndex(),
-        new EmptyIslandRepository(),
-        new IslandExecutionLanes(Runnable::run, 4),
+    IslandCreationRepository repository = new EmptyIslandRepository();
+    IslandExecutionLanes lanes = new IslandExecutionLanes(Runnable::run, 4);
+    IslandRuntimeManager runtimes =
         new IslandRuntimeManager(
             request ->
                 CompletableFuture.completedFuture(
@@ -167,8 +169,11 @@ class FoundationBootstrapCoordinatorTest {
                         return CompletableFuture.completedFuture(null);
                       }
                     }),
-            Duration.ofSeconds(1)),
-        worldEffects,
+            Duration.ofSeconds(1));
+    WorldProjectionRegistry worlds = new WorldProjectionRegistry(List.of());
+    GridGeometry geometry =
+        new GridGeometry(configuration.grid(), new CoordinateRange(-30_000_000, 30_000_001));
+    WorldPreparationCoordinator preparation =
         new WorldPreparationCoordinator(
             worldEffects,
             new IslandWorldPreparation() {
@@ -184,7 +189,32 @@ class FoundationBootstrapCoordinatorTest {
                     new AssertionError("unexpected world verification"));
               }
             },
-            java.time.Clock.systemUTC()));
+            java.time.Clock.systemUTC());
+    int minimumY = configuration.buildHeight().minimumY();
+    int maximumY = configuration.buildHeight().maximumYExclusive();
+    CreateIslandService creation =
+        new CreateIslandService(
+            repository,
+            lanes,
+            runtimes,
+            worlds,
+            ignored -> geometry,
+            NamespacedId.parse("minecraft:grass_block"),
+            64,
+            minimumY,
+            maximumY,
+            preparation,
+            java.time.Clock.systemUTC());
+    return new FoundationRuntime(
+        configuration,
+        worlds,
+        new InMemorySlotLocatorIndex(),
+        repository,
+        lanes,
+        runtimes,
+        worldEffects,
+        preparation,
+        creation);
   }
 
   private static WorldEffectJournal unavailableWorldEffects() {
@@ -292,6 +322,12 @@ class FoundationBootstrapCoordinatorTest {
     }
 
     @Override
+    public CompletionStage<IslandAggregateSnapshot> activateCreation(
+        IslandCreationActivationRequest request) {
+      return unsupported();
+    }
+
+    @Override
     public CompletionStage<Optional<IslandAggregateSnapshot>> findById(IslandId islandId) {
       return CompletableFuture.completedFuture(Optional.empty());
     }
@@ -304,6 +340,11 @@ class FoundationBootstrapCoordinatorTest {
 
     @Override
     public CompletionStage<List<IslandAggregateSnapshot>> findPendingCreations() {
+      return CompletableFuture.completedFuture(List.of());
+    }
+
+    @Override
+    public CompletionStage<List<IslandCreationRequest>> findPendingCreationRequests() {
       return CompletableFuture.completedFuture(List.of());
     }
 

@@ -2,12 +2,16 @@ package dev.openoneblock.persistence.sqlite.island;
 
 import dev.openoneblock.api.grid.GridPosition;
 import dev.openoneblock.api.id.IslandId;
+import dev.openoneblock.api.id.NamespacedId;
 import dev.openoneblock.api.id.OperationId;
 import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.api.id.ShardGroupId;
+import dev.openoneblock.api.id.WorldId;
 import dev.openoneblock.api.island.IslandLifecycleState;
 import dev.openoneblock.core.grid.GridGeometry;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandCreationActivationRequest;
+import dev.openoneblock.core.island.IslandCreationContext;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
@@ -23,6 +27,7 @@ import dev.openoneblock.core.slot.SlotAllocationRequest;
 import dev.openoneblock.core.slot.SlotId;
 import dev.openoneblock.core.slot.SlotLifecyclePolicy;
 import dev.openoneblock.core.slot.SlotState;
+import dev.openoneblock.core.world.WorldEffectState;
 import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.SqliteImmediateTransactions;
 import dev.openoneblock.persistence.sqlite.SqlitePersistenceException;
@@ -94,7 +99,20 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
   public CompletionStage<IslandAggregateSnapshot> advanceCreation(
       IslandCreationTransitionRequest request) {
     Objects.requireNonNull(request, "request");
+    if (request.stage() == IslandCreationStage.ACTIVATE) {
+      return CompletableFuture.failedFuture(
+          new IllegalArgumentException(
+              "activation requires verified spawn, progression, Magic Block, and effect evidence"));
+    }
     return supplyAsync(() -> advanceAndPublish(request));
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public CompletionStage<IslandAggregateSnapshot> activateCreation(
+      IslandCreationActivationRequest request) {
+    Objects.requireNonNull(request, "request");
+    return supplyAsync(() -> activateAndPublish(request));
   }
 
   /** {@inheritDoc} */
@@ -169,6 +187,46 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
         });
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public CompletionStage<List<IslandCreationRequest>> findPendingCreationRequests() {
+    return supplyAsync(
+        () -> {
+          try (Connection connection = connectionFactory.open();
+              PreparedStatement statement =
+                  connection.prepareStatement(
+                      """
+                      SELECT i.island_id, i.owner_player_id, s.shard_group_id,
+                             i.pending_operation_id, i.current_border_size,
+                             i.maximum_border_size, o.created_at,
+                             c.primary_world_id, c.profile_id, c.phase_id,
+                             c.starter_block_id, c.magic_block_y,
+                             c.minimum_y, c.maximum_y_exclusive
+                      FROM islands i
+                      JOIN slots s ON s.slot_id = i.primary_slot_id
+                      JOIN operations o ON o.operation_id = i.pending_operation_id
+                      JOIN island_creation_contexts c
+                        ON c.operation_id = i.pending_operation_id
+                      WHERE i.pending_operation_id IS NOT NULL
+                        AND i.lifecycle_state IN ('ALLOCATING', 'CREATING')
+                        AND o.kind = ?
+                      ORDER BY i.created_at, i.island_id
+                      """)) {
+            statement.setString(1, CREATION_KIND);
+            try (ResultSet result = statement.executeQuery()) {
+              List<IslandCreationRequest> pending = new ArrayList<>();
+              while (result.next()) {
+                pending.add(readPendingRequest(result));
+              }
+              return List.copyOf(pending);
+            }
+          } catch (SQLException exception) {
+            throw new SqlitePersistenceException(
+                "Failed to read pending SQLite creation intents", exception);
+          }
+        });
+  }
+
   private IslandAggregateSnapshot createAndPublish(IslandCreationRequest request) {
     IslandAggregateSnapshot committed;
     try {
@@ -212,6 +270,326 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       throw new CommittedSlotPublicationException(slot, exception);
     }
     return committed;
+  }
+
+  private IslandAggregateSnapshot activateAndPublish(IslandCreationActivationRequest request) {
+    IslandAggregateSnapshot committed;
+    try {
+      committed = transactions.execute(connection -> activateInTransaction(connection, request));
+    } catch (SQLException exception) {
+      throw new SqlitePersistenceException("Failed to activate SQLite island creation", exception);
+    }
+    AllocatedSlot slot = committed.primarySlot().orElseThrow();
+    try {
+      LocatorPublishDecision decision = locatorPublisher.publishCommitted(toLocatorEntry(slot));
+      if (decision == LocatorPublishDecision.CONFLICTED) {
+        throw new IllegalStateException("Committed active slot conflicts with locator projection");
+      }
+    } catch (RuntimeException exception) {
+      throw new CommittedSlotPublicationException(slot, exception);
+    }
+    return committed;
+  }
+
+  private static IslandAggregateSnapshot activateInTransaction(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    IslandAggregateSnapshot current =
+        findById(connection, request.islandId())
+            .orElseThrow(
+                () ->
+                    new IslandCreationTransitionConflictException(
+                        "Activation refers to an unknown island"));
+    AllocatedSlot slot =
+        current
+            .primarySlot()
+            .orElseThrow(
+                () ->
+                    new IslandCreationTransitionConflictException(
+                        "Activation island has no primary slot"));
+    ActivationOperation operation = readActivationOperation(connection, request.operationId());
+    long targetIslandVersion = Math.incrementExact(request.expectedIslandVersion());
+    long targetSlotVersion = Math.incrementExact(request.expectedSlotVersion());
+    if (current.lifecycleState() == IslandLifecycleState.ACTIVE
+        && current.version() == targetIslandVersion
+        && slot.state() == SlotState.ACTIVE
+        && slot.version() == targetSlotVersion
+        && operation.state().equals("COMPLETED")
+        && Objects.equals(operation.outcomeState(), "SUCCEEDED")
+        && Objects.equals(operation.outcomePayload(), request.islandId().toString())) {
+      verifyActivationProjectionReplay(connection, request);
+      return current;
+    }
+    if (current.version() != request.expectedIslandVersion()
+        || slot.version() != request.expectedSlotVersion()) {
+      throw new IslandOptimisticLockException(
+          request.islandId(),
+          request.expectedIslandVersion(),
+          current.version(),
+          request.expectedSlotVersion(),
+          slot.version());
+    }
+    if (current.lifecycleState() != IslandLifecycleState.CREATING
+        || slot.state() != SlotState.PREPARING
+        || current.pendingOperationId().filter(request.operationId()::equals).isEmpty()
+        || !operation.islandId().equals(request.islandId())
+        || !operation.slotId().equals(slot.slotId())
+        || !operation.state().equals("PREPARING_WORLD")) {
+      throw new IslandCreationTransitionConflictException(
+          "Persisted creation is not ready for verified activation");
+    }
+    verifyRequiredEffects(connection, request);
+    insertSpawn(connection, request);
+    insertProgression(connection, request);
+    insertMagicBlock(connection, request);
+    updateActivationIsland(connection, request, targetIslandVersion);
+    updateActivationSlot(connection, request, slot, targetSlotVersion);
+    completeActivationOperation(connection, request);
+    return findById(connection, request.islandId())
+        .orElseThrow(() -> new SQLException("Activated island could not be read back"));
+  }
+
+  private static ActivationOperation readActivationOperation(
+      Connection connection, OperationId operationId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT island_id, state, slot_id, outcome_state, outcome_payload
+            FROM operations
+            WHERE operation_id = ? AND kind = ?
+            """)) {
+      statement.setString(1, operationId.toString());
+      statement.setString(2, CREATION_KIND);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next() || result.getString("slot_id") == null) {
+          throw new IslandCreationTransitionConflictException(
+              "Activation operation does not exist");
+        }
+        return new ActivationOperation(
+            IslandId.parse(result.getString("island_id")),
+            result.getString("state"),
+            SlotId.parse(result.getString("slot_id")),
+            result.getString("outcome_state"),
+            result.getString("outcome_payload"));
+      }
+    }
+  }
+
+  private static void verifyRequiredEffects(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT island_id, state
+            FROM world_effect_receipts
+            WHERE operation_id = ? AND effect_index = ?
+            """)) {
+      for (var key : request.requiredEffects()) {
+        statement.setString(1, key.operationId().toString());
+        statement.setInt(2, key.effectIndex());
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next()
+              || !request.islandId().toString().equals(result.getString("island_id"))
+              || !WorldEffectState.VERIFIED_SUCCESS.name().equals(result.getString("state"))) {
+            throw new IslandCreationTransitionConflictException(
+                "Activation requires every declared world effect to be verified");
+          }
+        }
+      }
+    }
+  }
+
+  private static void insertSpawn(Connection connection, IslandCreationActivationRequest request)
+      throws SQLException {
+    var spawn = request.primarySpawn();
+    var position = spawn.position();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO island_spawn_points (
+                island_id, spawn_id, world_id, x, y, z, yaw, pitch,
+                primary_spawn, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """)) {
+      statement.setString(1, request.islandId().toString());
+      statement.setString(2, spawn.spawnId().toString());
+      statement.setString(3, position.worldId().toString());
+      statement.setDouble(4, position.x());
+      statement.setDouble(5, position.y());
+      statement.setDouble(6, position.z());
+      statement.setFloat(7, position.yaw());
+      statement.setFloat(8, position.pitch());
+      statement.setString(9, request.activatedAt().toString());
+      statement.setString(10, request.activatedAt().toString());
+      statement.executeUpdate();
+    }
+  }
+
+  private static void insertProgression(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO island_progression (
+                island_id, current_phase_id, version, created_at, updated_at
+            ) VALUES (?, ?, 0, ?, ?)
+            """)) {
+      statement.setString(1, request.islandId().toString());
+      statement.setString(2, request.initialPhaseId().toString());
+      statement.setString(3, request.activatedAt().toString());
+      statement.setString(4, request.activatedAt().toString());
+      statement.executeUpdate();
+    }
+  }
+
+  private static void insertMagicBlock(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    var magic = request.magicBlock();
+    var position = magic.position();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO magic_blocks (
+                island_id, magic_block_id, world_id, block_x, block_y, block_z,
+                profile_id, current_content_id, state, sequence, last_persisted_sequence,
+                cooldown_until, version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'READY', 0, 0, NULL, 0, ?, ?)
+            """)) {
+      statement.setString(1, request.islandId().toString());
+      statement.setString(2, magic.magicBlockId().toString());
+      statement.setString(3, position.worldId().toString());
+      statement.setInt(4, position.x());
+      statement.setInt(5, position.y());
+      statement.setInt(6, position.z());
+      statement.setString(7, magic.profileId().toString());
+      statement.setString(8, magic.currentContentId().toString());
+      statement.setString(9, request.activatedAt().toString());
+      statement.setString(10, request.activatedAt().toString());
+      statement.executeUpdate();
+    }
+  }
+
+  private static void updateActivationIsland(
+      Connection connection, IslandCreationActivationRequest request, long targetVersion)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            UPDATE islands
+            SET lifecycle_state = 'ACTIVE', version = ?, pending_operation_id = NULL,
+                lifecycle_lock_reason = NULL, updated_at = ?
+            WHERE island_id = ? AND lifecycle_state = 'CREATING' AND version = ?
+              AND pending_operation_id = ?
+            """)) {
+      statement.setLong(1, targetVersion);
+      statement.setString(2, request.activatedAt().toString());
+      statement.setString(3, request.islandId().toString());
+      statement.setLong(4, request.expectedIslandVersion());
+      statement.setString(5, request.operationId().toString());
+      if (statement.executeUpdate() != 1) {
+        throw new SQLException("Island changed during activation");
+      }
+    }
+  }
+
+  private static void updateActivationSlot(
+      Connection connection,
+      IslandCreationActivationRequest request,
+      AllocatedSlot slot,
+      long targetVersion)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            UPDATE slots
+            SET state = 'ACTIVE', version = ?, updated_at = ?
+            WHERE slot_id = ? AND owner_island_id = ? AND state = 'PREPARING' AND version = ?
+            """)) {
+      statement.setLong(1, targetVersion);
+      statement.setString(2, request.activatedAt().toString());
+      statement.setString(3, slot.slotId().toString());
+      statement.setString(4, request.islandId().toString());
+      statement.setLong(5, request.expectedSlotVersion());
+      if (statement.executeUpdate() != 1) {
+        throw new SQLException("Slot changed during activation");
+      }
+    }
+  }
+
+  private static void completeActivationOperation(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            UPDATE operations
+            SET state = 'COMPLETED', outcome_state = 'SUCCEEDED', outcome_payload = ?,
+                completed_at = ?, updated_at = ?
+            WHERE operation_id = ? AND island_id = ? AND kind = ? AND state = 'PREPARING_WORLD'
+              AND outcome_state IS NULL
+            """)) {
+      statement.setString(1, request.islandId().toString());
+      statement.setString(2, request.activatedAt().toString());
+      statement.setString(3, request.activatedAt().toString());
+      statement.setString(4, request.operationId().toString());
+      statement.setString(5, request.islandId().toString());
+      statement.setString(6, CREATION_KIND);
+      if (statement.executeUpdate() != 1) {
+        throw new SQLException("Creation operation changed during activation");
+      }
+    }
+  }
+
+  private static void verifyActivationProjectionReplay(
+      Connection connection, IslandCreationActivationRequest request) throws SQLException {
+    verifyRequiredEffects(connection, request);
+    var spawn = request.primarySpawn();
+    var magic = request.magicBlock();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM island_spawn_points
+                 WHERE island_id = ? AND spawn_id = ? AND world_id = ?
+                   AND x = ? AND y = ? AND z = ? AND yaw = ? AND pitch = ?
+                   AND primary_spawn = 1) AS spawn_count,
+                (SELECT COUNT(*) FROM island_progression
+                 WHERE island_id = ? AND current_phase_id = ?) AS progression_count,
+                (SELECT COUNT(*) FROM magic_blocks
+                 WHERE island_id = ? AND magic_block_id = ? AND world_id = ?
+                   AND block_x = ? AND block_y = ? AND block_z = ?
+                   AND profile_id = ? AND current_content_id = ?
+                   AND state = 'READY' AND sequence = 0) AS magic_count
+            """)) {
+      var spawnPosition = spawn.position();
+      var magicPosition = magic.position();
+      int parameter = 1;
+      statement.setString(parameter++, request.islandId().toString());
+      statement.setString(parameter++, spawn.spawnId().toString());
+      statement.setString(parameter++, spawnPosition.worldId().toString());
+      statement.setDouble(parameter++, spawnPosition.x());
+      statement.setDouble(parameter++, spawnPosition.y());
+      statement.setDouble(parameter++, spawnPosition.z());
+      statement.setFloat(parameter++, spawnPosition.yaw());
+      statement.setFloat(parameter++, spawnPosition.pitch());
+      statement.setString(parameter++, request.islandId().toString());
+      statement.setString(parameter++, request.initialPhaseId().toString());
+      statement.setString(parameter++, request.islandId().toString());
+      statement.setString(parameter++, magic.magicBlockId().toString());
+      statement.setString(parameter++, magicPosition.worldId().toString());
+      statement.setInt(parameter++, magicPosition.x());
+      statement.setInt(parameter++, magicPosition.y());
+      statement.setInt(parameter++, magicPosition.z());
+      statement.setString(parameter++, magic.profileId().toString());
+      statement.setString(parameter, magic.currentContentId().toString());
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()
+            || result.getInt("spawn_count") != 1
+            || result.getInt("progression_count") != 1
+            || result.getInt("magic_count") != 1) {
+          throw new IslandCreationOperationConflictException(
+              "Completed creation replay does not match activation projections");
+        }
+      }
+    }
   }
 
   private static IslandAggregateSnapshot advanceInTransaction(
@@ -392,6 +770,7 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
             request.requestedAt());
     AllocatedSlot slot = reservations.reserve(connection, allocationRequest);
     insertOperation(connection, request, slot);
+    insertCreationContext(connection, request);
     insertIsland(connection, request, slot);
     insertOwnerMembership(connection, request);
     return findById(connection, request.islandId())
@@ -402,7 +781,11 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
       Connection connection, IslandCreationRequest request) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT island_id, kind, slot_id FROM operations WHERE operation_id = ?")) {
+            """
+            SELECT island_id, kind, slot_id, request_fingerprint
+            FROM operations
+            WHERE operation_id = ?
+            """)) {
       statement.setString(1, request.operationId().toString());
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) {
@@ -410,7 +793,8 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
         }
         if (!request.islandId().toString().equals(result.getString("island_id"))
             || !CREATION_KIND.equals(result.getString("kind"))
-            || result.getString("slot_id") == null) {
+            || result.getString("slot_id") == null
+            || !request.fingerprint().equals(result.getString("request_fingerprint"))) {
           throw new IslandCreationOperationConflictException(
               "Operation ID already belongs to a different creation intent");
         }
@@ -467,18 +851,64 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
         connection.prepareStatement(
             """
             INSERT INTO operations (
-                operation_id, island_id, kind, state, slot_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                operation_id, island_id, kind, state, slot_id, request_fingerprint,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """)) {
       statement.setString(1, request.operationId().toString());
       statement.setString(2, request.islandId().toString());
       statement.setString(3, CREATION_KIND);
       statement.setString(4, ALLOCATED_STATE);
       statement.setString(5, slot.slotId().toString());
-      statement.setString(6, timestamp);
+      statement.setString(6, request.fingerprint());
       statement.setString(7, timestamp);
+      statement.setString(8, timestamp);
       statement.executeUpdate();
     }
+  }
+
+  private static void insertCreationContext(Connection connection, IslandCreationRequest request)
+      throws SQLException {
+    IslandCreationContext context = request.context();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO island_creation_contexts (
+                operation_id, primary_world_id, profile_id, phase_id,
+                starter_block_id, magic_block_y, minimum_y, maximum_y_exclusive
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """)) {
+      statement.setString(1, request.operationId().toString());
+      statement.setString(2, context.primaryWorldId().toString());
+      statement.setString(3, context.profileId().toString());
+      statement.setString(4, context.phaseId().toString());
+      statement.setString(5, context.starterBlockId().toString());
+      statement.setInt(6, context.magicBlockY());
+      statement.setInt(7, context.minimumY());
+      statement.setInt(8, context.maximumYExclusive());
+      statement.executeUpdate();
+    }
+  }
+
+  private static IslandCreationRequest readPendingRequest(ResultSet result) throws SQLException {
+    IslandCreationContext context =
+        new IslandCreationContext(
+            WorldId.parse(result.getString("primary_world_id")),
+            NamespacedId.parse(result.getString("profile_id")),
+            NamespacedId.parse(result.getString("phase_id")),
+            NamespacedId.parse(result.getString("starter_block_id")),
+            result.getInt("magic_block_y"),
+            result.getInt("minimum_y"),
+            result.getInt("maximum_y_exclusive"));
+    return new IslandCreationRequest(
+        IslandId.parse(result.getString("island_id")),
+        PlayerId.parse(result.getString("owner_player_id")),
+        ShardGroupId.parse(result.getString("shard_group_id")),
+        OperationId.parse(result.getString("pending_operation_id")),
+        result.getInt("current_border_size"),
+        result.getInt("maximum_border_size"),
+        context,
+        java.time.Instant.parse(result.getString("created_at")));
   }
 
   private static void insertIsland(
@@ -593,6 +1023,9 @@ public final class SqliteIslandCreationRepository implements IslandCreationRepos
   }
 
   private record CreationOperation(String state, SlotId slotId) {}
+
+  private record ActivationOperation(
+      IslandId islandId, String state, SlotId slotId, String outcomeState, String outcomePayload) {}
 
   private record TransitionSpec(
       IslandLifecycleState sourceIslandState,
