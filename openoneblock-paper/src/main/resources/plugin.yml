@@ -37,3 +37,6 @@ permissions:
   openoneblock.command.delete:
     description: Allows an owner to request and confirm island deletion.
     default: true
+  openoneblock.command.reset:
+    description: Allows an owner to request and confirm island reset.
+    default: true

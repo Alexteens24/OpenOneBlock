@@ -9,6 +9,7 @@ import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandHomeService;
+import dev.openoneblock.core.island.ResetIslandService;
 import dev.openoneblock.core.locator.InMemorySlotLocatorIndex;
 import dev.openoneblock.core.locator.WorldEnvironment;
 import dev.openoneblock.core.locator.WorldProjectionDefinition;
@@ -16,6 +17,7 @@ import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.world.IslandCellCleanupCoordinator;
 import dev.openoneblock.core.world.WorldPreparationCoordinator;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
@@ -38,6 +40,7 @@ import dev.openoneblock.persistence.sqlite.SqliteConnectionFactory;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandCreationRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandDeletionRepository;
 import dev.openoneblock.persistence.sqlite.island.SqliteIslandQueryRepository;
+import dev.openoneblock.persistence.sqlite.island.SqliteIslandResetRepository;
 import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
@@ -235,6 +238,22 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       geometryByShard,
                       islandCleanup,
                       clock);
+              IslandCellCleanupCoordinator cellCleanup =
+                  new IslandCellCleanupCoordinator(
+                      runtimeManager, activeWorlds, geometryByShard, islandCleanup);
+              SqliteIslandResetRepository resetRepository =
+                  new SqliteIslandResetRepository(
+                      activeFactory, locator, activeExecutors.database());
+              ResetIslandService resetService =
+                  new ResetIslandService(
+                      resetRepository,
+                      lanes,
+                      runtimeManager,
+                      activeWorlds,
+                      geometryByShard,
+                      cellCleanup,
+                      preparationCoordinator,
+                      clock);
               FoundationRuntime recovered =
                   new FoundationRuntime(
                       configuration,
@@ -249,7 +268,9 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       queryRepository,
                       homeService,
                       deletionRepository,
-                      deletionService);
+                      deletionService,
+                      resetRepository,
+                      resetService);
               chunkTickets = ticketController;
               runtime = recovered;
               return repository
@@ -257,6 +278,10 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   .thenCompose(
                       pending ->
                           sequence(pending.stream().map(creationService::recoverPending).toList()))
+                  .thenCompose(ignored -> resetRepository.findPendingResets())
+                  .thenCompose(
+                      pending ->
+                          sequence(pending.stream().map(resetService::recoverPending).toList()))
                   .thenCompose(ignored -> deletionRepository.findPendingDeletions())
                   .thenCompose(
                       pending ->

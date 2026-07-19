@@ -5,6 +5,7 @@ import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandResetResult;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -63,5 +64,29 @@ public interface IslandCommandGateway {
     return new MutationSubmission<>(
         dev.openoneblock.api.id.OperationId.generate(),
         CompletableFuture.failedFuture(new UnsupportedOperationException("delete is unavailable")));
+  }
+
+  /**
+   * Issues a one-time exact-version reset challenge.
+   *
+   * @param player requesting owner
+   * @return asynchronous confirmation challenge
+   */
+  default CompletionStage<ConfirmationChallenge> requestReset(PlayerId player) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("reset is unavailable"));
+  }
+
+  /**
+   * Consumes a reset confirmation and submits the durable rebuild operation.
+   *
+   * @param player confirming owner
+   * @param token one-time confirmation token
+   * @return traceable non-blocking reset submission
+   */
+  default MutationSubmission<IslandResetResult> confirmReset(PlayerId player, String token) {
+    return new MutationSubmission<>(
+        dev.openoneblock.api.id.OperationId.generate(),
+        CompletableFuture.failedFuture(new UnsupportedOperationException("reset is unavailable")));
   }
 }

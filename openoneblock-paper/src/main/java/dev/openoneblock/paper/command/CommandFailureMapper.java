@@ -7,6 +7,8 @@ import dev.openoneblock.core.island.IslandDeletionConflictException;
 import dev.openoneblock.core.island.IslandDeletionFailedException;
 import dev.openoneblock.core.island.IslandMembershipConflictException;
 import dev.openoneblock.core.island.IslandPostActivationDeliveryException;
+import dev.openoneblock.core.island.IslandResetConflictException;
+import dev.openoneblock.core.island.IslandResetFailedException;
 import dev.openoneblock.core.island.PlayerIslandNotFoundException;
 import dev.openoneblock.core.island.UnsafeIslandHomeException;
 import java.util.Map;
@@ -118,6 +120,39 @@ public final class CommandFailureMapper {
     }
     return new CommandFailure(
         "command.delete.failed",
+        Map.of("operation_id", Objects.toString(operationId, "not-started")),
+        true);
+  }
+
+  /**
+   * Maps one reset challenge or operation failure.
+   *
+   * @param failure asynchronous failure
+   * @param operationId optional operation trace identity
+   * @return stable response mapping
+   */
+  public CommandFailure mapReset(Throwable failure, OperationId operationId) {
+    Throwable cause = unwrap(failure);
+    if (cause instanceof CommandRuntimeUnavailableException) {
+      return new CommandFailure("command.not-ready", Map.of(), false);
+    }
+    if (cause instanceof PlayerIslandNotFoundException) {
+      return new CommandFailure("command.no-island", Map.of(), false);
+    }
+    if (cause instanceof ConfirmationRejectedException) {
+      return new CommandFailure("command.confirmation.invalid", Map.of(), false);
+    }
+    if (cause instanceof IslandResetConflictException) {
+      return new CommandFailure("command.reset.conflict", Map.of(), false);
+    }
+    if (cause instanceof IslandResetFailedException) {
+      return new CommandFailure(
+          "command.reset.quarantined",
+          Map.of("operation_id", Objects.toString(operationId, "not-started")),
+          true);
+    }
+    return new CommandFailure(
+        "command.reset.failed",
         Map.of("operation_id", Objects.toString(operationId, "not-started")),
         true);
   }

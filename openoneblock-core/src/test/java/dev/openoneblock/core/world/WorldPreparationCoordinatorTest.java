@@ -184,6 +184,33 @@ class WorldPreparationCoordinatorTest {
   }
 
   @Test
+  void acceptsResettingIslandOnlyWhileItsOwnedSlotIsPreparing() {
+    InMemoryJournal journal = new InMemoryJournal();
+    AtomicInteger executions = new AtomicInteger();
+    IslandWorldPreparation platform =
+        new IslandWorldPreparation() {
+          @Override
+          public CompletionStage<WorldEffectOutcome> execute(WorldEffectPlan effect) {
+            executions.incrementAndGet();
+            return success("reset effect verified");
+          }
+
+          @Override
+          public CompletionStage<WorldEffectOutcome> verify(WorldEffectPlan effect) {
+            throw new AssertionError("new reset effects must execute");
+          }
+        };
+    IslandAggregateSnapshot resetting =
+        snapshot(IslandLifecycleState.RESETTING, SlotState.PREPARING, Optional.of(OPERATION));
+
+    WorldPreparationReport report =
+        join(new WorldPreparationCoordinator(journal, platform, CLOCK).prepare(resetting, plan()));
+
+    assertEquals(WorldPreparationReport.Status.VERIFIED_SUCCESS, report.status());
+    assertEquals(3, executions.get());
+  }
+
+  @Test
   void planRejectsMagicBlockSpawnAndStructureOutsideReservedRegion() {
     List<WorldEffectPlan> outsideBlock = new ArrayList<>(plan().effects());
     outsideBlock.set(

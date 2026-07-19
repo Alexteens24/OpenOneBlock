@@ -5,6 +5,7 @@ import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandResetResult;
 import dev.openoneblock.paper.bootstrap.PluginRuntimeLifecycle;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -20,7 +21,7 @@ import org.bukkit.entity.Player;
 /** Paper lifecycle command handler for `/oneblock` and `/ob`. */
 public final class OpenOneBlockCommand implements BasicCommand {
   private static final List<String> ROOT_SUGGESTIONS =
-      List.of("create", "home", "info", "delete", "help");
+      List.of("create", "home", "info", "reset", "delete", "help");
 
   private final PluginRuntimeLifecycle lifecycle;
   private final IslandCommandGateway islands;
@@ -62,6 +63,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "create" -> create(sender);
       case "home" -> home(sender);
       case "info" -> info(sender);
+      case "reset" -> reset(sender, args);
       case "delete" -> delete(sender, args);
       default -> messages.send(sender, "command.unknown");
     }
@@ -255,6 +257,58 @@ public final class OpenOneBlockCommand implements BasicCommand {
             });
   }
 
+  private void reset(CommandSender sender, String[] args) {
+    Player player = requirePlayer(sender);
+    if (player == null || !requirePermission(player, OpenOneBlockPermissions.RESET)) {
+      return;
+    }
+    if (!requireReady(player)) {
+      return;
+    }
+    PlayerId playerId = PlayerId.of(player.getUniqueId());
+    if (args.length == 1) {
+      islands
+          .requestReset(playerId)
+          .whenComplete(
+              (challenge, failure) -> {
+                if (failure != null) {
+                  respondResetFailure(player, null, failure);
+                  return;
+                }
+                messages.send(
+                    player,
+                    "command.reset.confirm",
+                    Map.of(
+                        "island_id", challenge.islandId(),
+                        "token", challenge.token(),
+                        "expires_at", challenge.expiresAt()));
+              });
+      return;
+    }
+    if (args.length != 3 || !args[1].equalsIgnoreCase("confirm") || args[2].isBlank()) {
+      messages.send(player, "command.reset.usage");
+      return;
+    }
+    MutationSubmission<IslandResetResult> submission = islands.confirmReset(playerId, args[2]);
+    messages.send(
+        player, "command.reset.started", Map.of("operation_id", submission.operationId()));
+    submission
+        .completion()
+        .whenComplete(
+            (result, failure) -> {
+              if (failure != null) {
+                respondResetFailure(player, submission.operationId(), failure);
+                return;
+              }
+              messages.send(
+                  player,
+                  result.replay() ? "command.reset.replay" : "command.reset.success",
+                  Map.of(
+                      "island_id", result.island().islandId(),
+                      "operation_id", submission.operationId()));
+            });
+  }
+
   private void respondFailure(
       CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
     CommandFailure mapped = failures.map(failure, operationId);
@@ -280,6 +334,15 @@ public final class OpenOneBlockCommand implements BasicCommand {
     messages.send(sender, mapped.messageKey(), mapped.placeholders());
     if (mapped.log()) {
       logger.log(Level.SEVERE, "OpenOneBlock delete operation " + operationId + " failed", failure);
+    }
+  }
+
+  private void respondResetFailure(
+      CommandSender sender, dev.openoneblock.api.id.OperationId operationId, Throwable failure) {
+    CommandFailure mapped = failures.mapReset(failure, operationId);
+    messages.send(sender, mapped.messageKey(), mapped.placeholders());
+    if (mapped.log()) {
+      logger.log(Level.SEVERE, "OpenOneBlock reset operation " + operationId + " failed", failure);
     }
   }
 
@@ -312,6 +375,7 @@ public final class OpenOneBlockCommand implements BasicCommand {
       case "create" -> OpenOneBlockPermissions.CREATE;
       case "home" -> OpenOneBlockPermissions.HOME;
       case "info" -> OpenOneBlockPermissions.INFO;
+      case "reset" -> OpenOneBlockPermissions.RESET;
       case "delete" -> OpenOneBlockPermissions.DELETE;
       default -> OpenOneBlockPermissions.HELP;
     };

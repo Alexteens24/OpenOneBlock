@@ -20,5 +20,8 @@ public final class OpenOneBlockPermissions {
   /** Permission to request and confirm owner island deletion. */
   public static final String DELETE = "openoneblock.command.delete";
 
+  /** Permission to request and confirm owner island reset. */
+  public static final String RESET = "openoneblock.command.reset";
+
   private OpenOneBlockPermissions() {}
 }

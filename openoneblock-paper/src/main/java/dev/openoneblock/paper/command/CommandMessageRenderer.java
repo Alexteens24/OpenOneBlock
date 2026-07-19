@@ -52,7 +52,7 @@ public final class CommandMessageRenderer {
 
   private static Map<String, String> fallbacks() {
     Map<String, String> messages = new LinkedHashMap<>();
-    messages.put("command.help", "OpenOneBlock: /ob create | home | info | delete");
+    messages.put("command.help", "OpenOneBlock: /ob create | home | info | reset | delete");
     messages.put("command.unknown", "Unknown subcommand. Use /ob help.");
     messages.put("command.player-only", "This command can only be used by a player.");
     messages.put("command.no-permission", "You do not have permission to do that.");
@@ -92,6 +92,20 @@ public final class CommandMessageRenderer {
         "Island ownership or version changed; request a new confirmation.");
     messages.put(
         "command.delete.failed", "Island deletion failed safely. Operation: {operation_id}");
+    messages.put(
+        "command.reset.confirm",
+        "This rebuilds island {island_id}. Run /ob reset confirm {token} before {expires_at}.");
+    messages.put("command.reset.usage", "Use /ob reset, then /ob reset confirm <token>.");
+    messages.put("command.reset.started", "Resetting island safely... Operation: {operation_id}");
+    messages.put("command.reset.success", "Island {island_id} was reset safely.");
+    messages.put("command.reset.replay", "Island {island_id} was already reset.");
+    messages.put(
+        "command.reset.quarantined",
+        "Reset could not be proven safe; the island slot was quarantined. Operation: {operation_id}");
+    messages.put(
+        "command.reset.conflict",
+        "Island ownership or version changed; request a new reset confirmation.");
+    messages.put("command.reset.failed", "Island reset failed safely. Operation: {operation_id}");
     messages.put(
         "command.confirmation.invalid", "Confirmation token is invalid, expired, or already used.");
     return Map.copyOf(messages);

@@ -11,6 +11,9 @@ import dev.openoneblock.core.island.IslandDeletionRequest;
 import dev.openoneblock.core.island.IslandDeletionResult;
 import dev.openoneblock.core.island.IslandHomeResult;
 import dev.openoneblock.core.island.IslandInfoSnapshot;
+import dev.openoneblock.core.island.IslandResetConflictException;
+import dev.openoneblock.core.island.IslandResetRequest;
+import dev.openoneblock.core.island.IslandResetResult;
 import dev.openoneblock.core.island.PlayerIslandNotFoundException;
 import dev.openoneblock.paper.bootstrap.FoundationRuntime;
 import java.time.Clock;
@@ -176,6 +179,62 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
     }
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public java.util.concurrent.CompletionStage<ConfirmationChallenge> requestReset(PlayerId player) {
+    Objects.requireNonNull(player, "player");
+    return info(player)
+        .thenCompose(
+            island -> {
+              if (!island.ownerId().equals(player)) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IslandResetConflictException("Reset requires the island owner"));
+              }
+              return java.util.concurrent.CompletableFuture.completedFuture(
+                  confirmations.issue(
+                      ConfirmationAction.RESET, player, island.islandId(), island.islandVersion()));
+            });
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public MutationSubmission<IslandResetResult> confirmReset(PlayerId player, String token) {
+    Objects.requireNonNull(player, "player");
+    Objects.requireNonNull(token, "token");
+    OperationId operationId = operationIds.get();
+    try {
+      ConfirmationChallenge challenge =
+          confirmations.consume(token, player, ConfirmationAction.RESET);
+      FoundationRuntime active =
+          runtime.get().orElseThrow(() -> new CommandRuntimeUnavailableException("not-ready"));
+      WorldId primaryWorld = primaryWorld(active);
+      var configuration = active.configuration();
+      var height = configuration.buildHeight();
+      int magicBlockY = Math.max(height.minimumY(), Math.min(64, height.maximumYExclusive() - 2));
+      var defaults = configuration.defaults();
+      IslandResetRequest request =
+          new IslandResetRequest(
+              challenge.islandId(),
+              operationId,
+              player,
+              challenge.islandVersion(),
+              primaryWorld,
+              defaults.phaseId(),
+              defaults.profileId(),
+              dev.openoneblock.api.id.NamespacedId.of(
+                  "minecraft",
+                  configuration.magicBlock().starterMaterial().toLowerCase(java.util.Locale.ROOT)),
+              magicBlockY,
+              height.minimumY(),
+              height.maximumYExclusive(),
+              clock.instant());
+      return new MutationSubmission<>(operationId, active.islandReset().reset(request));
+    } catch (RuntimeException failure) {
+      return new MutationSubmission<>(
+          operationId, java.util.concurrent.CompletableFuture.failedFuture(failure));
+    }
+  }
+
   private MutationSubmission<CreateIslandResult> create(PlayerId owner, OperationId operationId) {
     FoundationRuntime active =
         runtime.get().orElseThrow(() -> new CommandRuntimeUnavailableException("not-ready"));
@@ -209,5 +268,27 @@ public final class PaperIslandCommandGateway implements IslandCommandGateway {
             defaults.profileId(),
             defaults.phaseId());
     return new MutationSubmission<>(operationId, active.islandCreation().create(command));
+  }
+
+  private WorldId primaryWorld(FoundationRuntime active) {
+    var worldSpec =
+        active.configuration().worlds().stream()
+            .filter(spec -> spec.environment() == World.Environment.NORMAL)
+            .findFirst()
+            .orElseGet(() -> active.configuration().worlds().getFirst());
+    World world = server.getWorld(worldSpec.worldName());
+    if (world == null) {
+      throw new CommandRuntimeUnavailableException("primary-world-unloaded");
+    }
+    WorldId worldId = WorldId.of(world.getUID());
+    var projection =
+        active
+            .worldProjections()
+            .resolve(worldId)
+            .orElseThrow(() -> new CommandRuntimeUnavailableException("primary-world-unverified"));
+    if (!projection.shardGroupId().equals(worldSpec.shardGroupId())) {
+      throw new CommandRuntimeUnavailableException("primary-world-shard-drift");
+    }
+    return worldId;
   }
 }

@@ -270,6 +270,56 @@ class FoundationBootstrapCoordinatorTest {
                         dev.openoneblock.core.world.IslandCleanup.Status.VERIFIED_CLEAN,
                         "test deletion cleanup")),
             java.time.Clock.systemUTC());
+    dev.openoneblock.core.island.IslandResetRepository resets =
+        new dev.openoneblock.core.island.IslandResetRepository() {
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandResetProgress> beginReset(
+              dev.openoneblock.core.island.IslandResetRequest request) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected reset"));
+          }
+
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandResetProgress> completeCleanup(
+              dev.openoneblock.core.island.IslandResetCleanupCompletion completion) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected reset"));
+          }
+
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandResetProgress>
+              beginPreparationFailure(
+                  dev.openoneblock.core.island.IslandResetPreparationFailure failure) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected reset"));
+          }
+
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandResetProgress> activateReset(
+              dev.openoneblock.core.island.IslandResetActivation activation) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected reset"));
+          }
+
+          @Override
+          public CompletionStage<List<dev.openoneblock.core.island.IslandResetRequest>>
+              findPendingResets() {
+            return CompletableFuture.completedFuture(List.of());
+          }
+        };
+    dev.openoneblock.core.world.IslandCleanup cleanup =
+        plan ->
+            CompletableFuture.completedFuture(
+                new dev.openoneblock.core.world.IslandCleanup.Result(
+                    dev.openoneblock.core.world.IslandCleanup.Status.VERIFIED_CLEAN,
+                    "test reset cleanup"));
+    dev.openoneblock.core.island.ResetIslandService reset =
+        new dev.openoneblock.core.island.ResetIslandService(
+            resets,
+            lanes,
+            runtimes,
+            worlds,
+            ignored -> geometry,
+            new dev.openoneblock.core.world.IslandCellCleanupCoordinator(
+                runtimes, worlds, ignored -> geometry, cleanup),
+            preparation,
+            java.time.Clock.systemUTC());
     return new FoundationRuntime(
         configuration,
         worlds,
@@ -283,7 +333,9 @@ class FoundationBootstrapCoordinatorTest {
         queries,
         home,
         deletions,
-        deletion);
+        deletion,
+        resets,
+        reset);
   }
 
   private static WorldEffectJournal unavailableWorldEffects() {

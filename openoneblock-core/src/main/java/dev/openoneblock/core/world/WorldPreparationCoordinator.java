@@ -183,8 +183,11 @@ public final class WorldPreparationCoordinator {
     Objects.requireNonNull(island, "island");
     Objects.requireNonNull(plan, "plan");
     var slot = island.primarySlot().orElseThrow();
+    boolean preparationLifecycle =
+        island.lifecycleState() == IslandLifecycleState.CREATING
+            || island.lifecycleState() == IslandLifecycleState.RESETTING;
     if (!island.islandId().equals(plan.islandId())
-        || island.lifecycleState() != IslandLifecycleState.CREATING
+        || !preparationLifecycle
         || island.version() != plan.expectedIslandVersion()
         || island.pendingOperationId().isEmpty()
         || !island.pendingOperationId().orElseThrow().equals(plan.operationId())
@@ -192,7 +195,7 @@ public final class WorldPreparationCoordinator {
         || slot.state() != SlotState.PREPARING
         || slot.version() != plan.expectedSlotVersion()) {
       throw new IllegalStateException(
-          "world preparation requires matching CREATING/PREPARING durable state");
+          "world preparation requires matching CREATING-or-RESETTING/PREPARING durable state");
     }
   }
 

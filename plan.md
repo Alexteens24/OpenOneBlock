@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 203 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 211 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, and does not yet register gameplay listeners.
 
@@ -136,6 +136,10 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
 - [x] Exact-version one-time confirmation tokens and crash-safe `/ob delete` with owner authority,
   island-lane serialization, durable V8 context, multi-dimension verified cleanup, exact replay,
   startup resume, membership retirement, slot release, and mandatory quarantine on uncertainty.
+- [x] Crash-safe `/ob reset` with the same exact-version owner confirmation, durable reset phases,
+  full-cell cleanup across dimensions, verified starter re-preparation, atomic gameplay projection
+  replacement, restart resume at every phase, retained identity/team/slot/border/upgrades, and
+  mandatory `BROKEN/QUARANTINED` disposition when reset safety cannot be proven.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -148,10 +152,12 @@ minimal `/oneblock` command surface, and does not yet register gameplay listener
   keeps the slot quarantined.
 - [x] Crash recovery resumes durable island deletions before publishing `READY` and releases a slot
   only after every configured dimension reports verified clean evidence.
+- [x] Crash recovery resumes reset initial cleanup, starter preparation, and failure cleanup before
+  publishing `READY`; it never promotes an uncertain reset back to `ACTIVE`.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
-- [~] Player command workflow: create/home/info/help/delete and the command platform are implemented;
-  reset and admin inspect remain.
+- [~] Player command workflow: create/home/info/help/reset/delete and the command platform are
+  implemented; admin inspect remains.
 - [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, first
   Magic Block, normalized counters, and typed-variable storage are persisted; broader team roles,
   upgrades, and aggregate mutation services remain.
@@ -444,7 +450,7 @@ Goal: make the Foundation usable on a test Paper server.
 - [x] `/ob create`.
 - [x] `/ob home`.
 - [x] `/ob delete` with explicit confirmation token.
-- [ ] `/ob reset` with explicit confirmation token.
+- [x] `/ob reset` with explicit confirmation token.
 - [x] `/ob info`.
 - [x] `/ob help`.
 - [ ] Basic admin inspect command.
@@ -555,41 +561,42 @@ Goal: safely release or rebuild cells without ever exposing residue to another i
 
 ### Deletion
 
-- [ ] Revoke gameplay admission first.
-- [ ] Transition island to `DELETING` and slot to `CLEANING` atomically.
+- [x] Revoke gameplay admission first.
+- [x] Transition island to `DELETING` and slot to `CLEANING` atomically.
 - [ ] Cancel pending island world work and delayed actions.
-- [ ] Remove plugin-created entities and block entities.
-- [ ] Clear configured world regions across every dimension projection.
-- [ ] Release chunk/plugin tickets.
-- [ ] Remove locator ownership only after authoritative transition.
+- [x] Remove plugin-created entities and block entities.
+- [x] Clear configured world regions across every dimension projection.
+- [x] Release chunk/plugin tickets.
+- [x] Remove locator ownership only after authoritative transition.
 - [ ] Verify no island, migration, operation, or scheduled action references the slot.
-- [ ] Archive island and deactivate memberships only after verified cleanup.
-- [ ] Transition slot to `FREE` only in the final verified transaction.
+- [x] Archive island and deactivate memberships only after verified cleanup.
+- [x] Transition slot to `FREE` only in the final verified transaction.
 
 ### Reset
 
-- [ ] Keep island ID, members, and logical slot.
-- [ ] Define resettable and retained data policy.
-- [ ] Transition island to `RESETTING` and slot to `PREPARING`.
-- [ ] Clear and reapply starter content.
-- [ ] Reinitialize phase, counters, variables, upgrades, and Magic Blocks according to policy.
-- [ ] Require full activation verification before returning to `ACTIVE`.
+- [x] Keep island ID, members, and logical slot.
+- [x] Define resettable and retained data policy: retain identity/team/slot/border/upgrades; reset
+  spawn, current phase/history, island counters/variables, and Magic Blocks.
+- [x] Transition through `RESETTING/CLEANING` and `RESETTING/PREPARING` atomically.
+- [x] Clear every dimension and reapply verified starter content in the primary world.
+- [x] Reinitialize phase, counters, variables, and Magic Blocks while retaining upgrades by policy.
+- [x] Require full world-effect and projection verification before returning to `ACTIVE`.
 
 ### Quarantine and repair
 
-- [ ] Cleanup timeout/failure transitions slot to `QUARANTINED`.
-- [ ] Quarantined slots are excluded from allocation.
+- [x] Cleanup timeout/failure transitions slot to `QUARANTINED`.
+- [x] Quarantined slots are excluded from allocation.
 - [ ] Add explicit cleanup retry operation.
-- [ ] Prevent direct `QUARANTINED -> FREE`.
+- [x] Prevent direct `QUARANTINED -> FREE`.
 - [ ] Repair enters `LOCKED`, never directly `ACTIVE`.
 
 ### Acceptance tests
 
-- [ ] Crash at every cleanup phase resumes without premature reuse.
-- [ ] Failed entity cleanup quarantines the slot.
-- [ ] Archived island has no primary slot and no active memberships.
-- [ ] Reset failure results in `BROKEN`, not `ACTIVE`.
-- [ ] Reusable slot selection ignores quarantined and cleaning slots.
+- [x] Crash at every implemented cleanup phase resumes without premature reuse.
+- [x] Failed or ambiguous cleanup quarantines the slot.
+- [x] Archived island has no primary slot and no active memberships.
+- [x] Reset failure results in `BROKEN`, not `ACTIVE`.
+- [x] Reusable slot selection ignores quarantined and cleaning slots.
 
 ## Milestone 11 — Crash recovery and durable operations (`P0`)
 
@@ -606,7 +613,8 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
   - error code and diagnostic context.
 - [ ] Add normalized operation-effect receipts.
 - [ ] Add startup scanner for every non-terminal operation.
-- [ ] Add recovery handlers for create, reset, delete, migration, repair, and critical rewards.
+- [~] Recovery handlers for create, reset, and delete are active; migration, repair, and critical
+  rewards remain.
 - [ ] Add bounded recovery concurrency across islands while preserving one lane per island.
 - [ ] Mark unprovable state `BROKEN` instead of guessing.
 - [ ] Persist recovery audit entries.
@@ -977,7 +985,7 @@ Goal: extensions add behavior without mutating internal aggregates.
 - [ ] Membership and role domain.
 - [x] Runtime/chunk lifecycle manager.
 - [x] World preparation plans, effect semantics, and minimal starter coordinator.
-- [ ] Creation/reset/delete/migration coordinators.
+- [~] Creation/reset/delete coordinators are active; migration orchestration remains.
 - [ ] Magic Block and content engine.
 - [ ] Counters, variables, upgrades, phases, and requirements.
 - [ ] Slot cleanup/removal publication semantics.
@@ -1051,8 +1059,8 @@ Migration numbering must remain append-only and checksummed.
   points, initial progression, and lifecycle lock metadata.
 - [x] V6: Magic Blocks and sequence uniqueness.
 - [x] V7: normalized counters and typed variables.
-- [~] V8: lifecycle operation recovery contexts, phase history, and upgrade storage are migrated;
-  reset and broader progression/upgrades services remain.
+- [~] V8: lifecycle operation recovery contexts, phase history, upgrade storage, crash-safe delete,
+  and crash-safe reset are active; broader progression/upgrades services remain.
 - [ ] V9: rule execution policies and cooldown state.
 - [ ] V10: durable scheduled actions.
 - [ ] V11: audit logs and retention metadata.
@@ -1083,8 +1091,9 @@ Migration numbering must remain append-only and checksummed.
 - Verify void-world creator options and existing-world fail-closed checks.
 - Latest manual smoke: Paper 1.21.11 build 132 on Java 21, an existing V7 foundation database
   migrated through V8, restart reused the persisted world projection, recovered lifecycle state,
-  reached `READY`, `/ob help` exposed create/home/info/delete, delete's console-player constraint
-  was enforced, and bounded shutdown completed without plugin errors.
+  reached `READY`, `/ob help` exposed create/home/info/reset/delete, reset's console-player constraint
+  was enforced, and bounded shutdown completed without plugin errors. The reset artifact was also
+  smoke-tested against the already-migrated V8 database without schema or recovery drift.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests
@@ -1130,7 +1139,8 @@ These budgets should become executable benchmarks or metrics thresholds:
 - [ ] Bound YAML size, nesting depth, and collection counts.
 - [ ] Bound database queues, executor queues, and per-island lane queues.
 - [ ] Rate-limit expensive player and admin commands.
-- [ ] Require explicit confirmations for delete, reset, repair, purge, and adoption.
+- [~] Delete and reset require exact-version one-time confirmations; repair, purge, and adoption
+  confirmations remain.
 - [ ] Redact database credentials and sensitive command values.
 - [ ] Validate addon namespaced IDs and reject duplicate registrations.
 - [ ] Fail closed when capabilities disappear during runtime.
