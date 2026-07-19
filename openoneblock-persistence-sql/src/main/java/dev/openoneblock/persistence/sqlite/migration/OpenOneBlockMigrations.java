@@ -130,6 +130,46 @@ public final class OpenOneBlockMigrations {
                 """
                 CREATE INDEX island_memberships_island_active
                 ON island_memberships (island_id, active)
+                """)),
+        new SqlMigration(
+            3,
+            "verified shared world projection catalog",
+            List.of(
+                """
+                CREATE TABLE world_projections (
+                    shard_group_id TEXT NOT NULL,
+                    dimension_id TEXT NOT NULL,
+                    configured_world_name TEXT NOT NULL UNIQUE,
+                    actual_world_id TEXT NOT NULL UNIQUE,
+                    environment TEXT NOT NULL CHECK (
+                        environment IN ('NORMAL', 'NETHER', 'THE_END')
+                    ),
+                    geometry_fingerprint TEXT NOT NULL CHECK (
+                        length(geometry_fingerprint) = 64
+                    ),
+                    state TEXT NOT NULL CHECK (state IN ('VERIFIED', 'BLOCKED')),
+                    version INTEGER NOT NULL CHECK (version >= 0),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (shard_group_id, dimension_id)
+                )
+                """,
+                """
+                CREATE TABLE world_projection_repairs (
+                    operation_id TEXT PRIMARY KEY,
+                    shard_group_id TEXT NOT NULL,
+                    dimension_id TEXT NOT NULL,
+                    expected_version INTEGER NOT NULL CHECK (expected_version >= 0),
+                    adopted_world_name TEXT NOT NULL,
+                    adopted_world_id TEXT NOT NULL,
+                    adopted_environment TEXT NOT NULL,
+                    adopted_geometry_fingerprint TEXT NOT NULL,
+                    outcome_version INTEGER NOT NULL CHECK (outcome_version > expected_version),
+                    outcome_created_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL,
+                    FOREIGN KEY (shard_group_id, dimension_id)
+                        REFERENCES world_projections (shard_group_id, dimension_id)
+                )
                 """)));
   }
 }

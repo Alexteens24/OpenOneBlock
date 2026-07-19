@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 109 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 116 automated tests. It produces
 an installable Paper foundation JAR, but deliberately remains in `DEGRADED` mode and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -93,12 +93,17 @@ register `/oneblock` commands or gameplay listeners.
   strict unknown-field/cross-field validation, deterministic fingerprints, and atomic publication.
 - [x] Config migration framework with original backups, adjacent-version validation, atomic writes,
   idempotency, and explicit backup restore.
+- [x] SQLite world projection catalog with authoritative UUID/environment/config identity, complete
+  restart drift diagnostics, verified runtime registry construction, and idempotent optimistic admin
+  adoption.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
 ### Partially implemented areas
 
 - [~] Shared worlds: creation adapters exist, but there is no plugin bootstrap to provision them.
+- [~] World projection persistence: registration and drift checks exist, but startup composition does
+  not yet invoke them immediately after provisioning.
 - [~] Island creation: database stages exist, but no application coordinator performs world work.
 - [~] Crash recovery: pending creation reads exist, but no startup recovery decision engine exists.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
@@ -238,7 +243,7 @@ Goal: reject unsafe configuration before worlds or gameplay start.
 
 Goal: detect database/world identity drift instead of trusting names after restart.
 
-- [ ] Add SQL migration for `world_projections`:
+- [x] Add SQL migration for `world_projections`:
   - shard group ID;
   - dimension ID;
   - configured world name;
@@ -247,21 +252,22 @@ Goal: detect database/world identity drift instead of trusting names after resta
   - geometry/config fingerprint;
   - state and version;
   - created/updated timestamps.
-- [ ] Persist the world UUID after first successful provisioning.
-- [ ] On restart, compare loaded world UUID and environment with persisted identity.
-- [ ] Fail closed if a configured name points to a replacement or copied world.
-- [ ] Require an explicit admin repair/adopt operation for identity changes.
-- [ ] Build `WorldProjectionRegistry` from verified persisted projections.
-- [ ] Ensure every enabled dimension in a shard resolves the same logical slot grid.
-- [ ] Add diagnostics for missing worlds, duplicate UUIDs, and geometry fingerprint drift.
+- [~] Persist the world UUID after first successful provisioning; the atomic catalog operation is
+  implemented and awaits startup composition wiring.
+- [x] On restart, compare loaded world UUID and environment with persisted identity.
+- [x] Fail closed if a configured name points to a replacement or copied world.
+- [x] Require an explicit admin repair/adopt operation for identity changes.
+- [x] Build `WorldProjectionRegistry` from verified persisted projections.
+- [x] Ensure every enabled dimension in a shard resolves the same logical slot grid.
+- [x] Add diagnostics for missing worlds, duplicate UUIDs, and geometry fingerprint drift.
 
 ### Acceptance tests
 
-- [ ] First startup records all configured projections.
-- [ ] Normal restart reuses the same UUIDs.
-- [ ] Replacing a world folder is detected and blocks gameplay.
-- [ ] Two dimensions with one UUID are rejected.
-- [ ] Config geometry drift requires an explicit migration plan.
+- [x] First catalog startup records all configured projections atomically.
+- [x] Normal restart reuses the same UUIDs.
+- [x] Replacing a world folder is detected and blocks gameplay.
+- [x] Two dimensions with one UUID are rejected.
+- [x] Config geometry drift requires an explicit migration plan.
 
 ## Milestone 4 — Chunk tickets and island runtime lifecycle (`P0`)
 
@@ -1100,7 +1106,7 @@ design change:
    - `config.yml` and `worlds.yml`;
    - strict validation;
    - default resources.
-3. `[ ] feat(persistence): persist verified world projections`
+3. `[x] feat(persistence): persist verified world projections`
    - migration V3;
    - UUID/config fingerprint verification;
    - restart tests.
