@@ -9,9 +9,9 @@ the plugin source.
 
 ## Project status
 
-OpenOneBlock is in its foundation phase. The repository currently defines module boundaries and
-build tooling plus accepted core execution semantics; it does not yet produce an installable Paper
-plugin.
+OpenOneBlock is in its foundation phase. The build produces an installable Paper foundation JAR,
+but the plugin deliberately starts in `DEGRADED` mode until configuration, persistence recovery,
+commands, and gameplay services are completed.
 
 ## Design specifications
 
@@ -51,6 +51,10 @@ The target server baseline is Paper 1.21.11 on Java 21.
 ```bash
 ./gradlew build
 ```
+
+The distributable plugin is written to
+`openoneblock-paper/build/libs/OpenOneBlock-0.1.0-SNAPSHOT.jar`. It includes the SQLite runtime but
+does not bundle the server's Paper API.
 
 Run all formatting checks with:
 

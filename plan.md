@@ -44,8 +44,9 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 95 automated tests. It does not
-yet produce a usable server plugin or register `/oneblock` commands.
+The repository is a Gradle multi-module project and currently passes 99 automated tests. It produces
+an installable Paper foundation JAR, but deliberately remains in `DEGRADED` mode and does not yet
+register `/oneblock` commands or gameplay listeners.
 
 ### Completed foundation work
 
@@ -86,6 +87,8 @@ yet produce a usable server plugin or register `/oneblock` commands.
 - [x] Paper global, region, async, and entity scheduler adapters.
 - [x] Void chunk generator with all Vanilla generation phases disabled.
 - [x] Shared void-world specification, validation, creation, and verification adapters.
+- [x] Reproducible Shadow JAR with Paper metadata, SQLite runtime, and artifact-content tests.
+- [x] Paper `JavaPlugin` composition root with a thread-safe, fail-closed runtime lifecycle gate.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
@@ -126,30 +129,31 @@ shut down safely without exposing gameplay early.
 
 ### Packaging
 
-- [ ] Add the Shadow plugin and build one distributable Paper JAR.
-- [ ] Include the SQLite JDBC driver in the distributable artifact.
-- [ ] Add `paper-plugin.yml` or `plugin.yml` with:
+- [x] Add the Shadow plugin and build one distributable Paper JAR.
+- [x] Include the SQLite JDBC driver in the distributable artifact.
+- [x] Add `paper-plugin.yml` or `plugin.yml` with:
   - plugin name `OpenOneBlock`;
   - namespace `openoneblock`;
   - main class;
   - Java/API version;
   - optional dependencies declared without hard linkage;
   - commands only after command services exist.
-- [ ] Keep `folia-supported` disabled until the complete event and integration audit passes.
-- [ ] Add artifact-name and version metadata.
-- [ ] Add a build test that inspects the final JAR for required classes and metadata.
+- [x] Keep `folia-supported` disabled until the complete event and integration audit passes.
+- [x] Add artifact-name and version metadata.
+- [x] Add a build test that inspects the final JAR for required classes and metadata.
 
 ### Plugin lifecycle
 
-- [ ] Add the `JavaPlugin` composition root.
-- [ ] Define explicit startup states:
+- [x] Add the `JavaPlugin` composition root.
+- [x] Define explicit startup states:
   - `BOOTSTRAPPING`;
   - `RECOVERING`;
   - `READY`;
   - `DEGRADED`;
   - `SHUTTING_DOWN`;
   - `STOPPED`.
-- [ ] Reject commands and gameplay events until state is `READY`.
+- [~] Reject commands and gameplay events until state is `READY`; the lifecycle gate is implemented,
+  while command and listener adapters do not exist yet.
 - [ ] Create bounded executors for SQL and non-Minecraft computation.
 - [ ] Initialize schema migrations before repositories.
 - [ ] Provision configured worlds through the global scheduler.
@@ -1083,37 +1087,37 @@ Do not implement these before the public MVP foundation is stable:
 The next implementation work should follow this order unless a discovered invariant requires a
 design change:
 
-1. `build(paper): produce installable plugin artifact`
+1. `[x] build(paper): produce installable plugin artifact`
    - Shadow JAR;
    - plugin metadata;
    - JAR-content test.
-2. `feat(config): add typed versioned foundation configuration`
+2. `[ ] feat(config): add typed versioned foundation configuration`
    - `config.yml` and `worlds.yml`;
    - strict validation;
    - default resources.
-3. `feat(persistence): persist verified world projections`
+3. `[ ] feat(persistence): persist verified world projections`
    - migration V3;
    - UUID/config fingerprint verification;
    - restart tests.
-4. `feat(paper): add startup composition and readiness gate`
+4. `[ ] feat(paper): add startup composition and readiness gate`
    - migrate DB;
    - provision worlds;
    - rebuild locator;
    - run recovery;
    - safe shutdown.
-5. `feat(core): add chunk activity and preparation contracts`
+5. `[ ] feat(core): add chunk activity and preparation contracts`
    - reference-counted reasons;
    - ticket ownership;
    - region-dispatched preparation.
-6. `feat(core): coordinate crash-safe island creation`
+6. `[ ] feat(core): coordinate crash-safe island creation`
    - durable stages;
    - minimal starter block/spawn;
    - cleanup/quarantine policy.
-7. `feat(paper): add create and home commands`
+7. `[ ] feat(paper): add create and home commands`
    - readiness/permission checks;
    - entity-safe teleport;
    - end-to-end live smoke test.
-8. Begin native protection only after the end-to-end create/home path is stable.
+8. `[ ]` Begin native protection only after the end-to-end create/home path is stable.
 
 # Public alpha exit criteria
 

@@ -3,6 +3,7 @@ junit = "6.1.0"
 jspecify = "1.0.0"
 paper = "1.21.11-R0.1-SNAPSHOT"
 sqliteJdbc = "3.53.2.0"
+shadow = "9.6.0"
 spotless = "8.8.0"
 
 [libraries]
@@ -14,4 +15,5 @@ paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
 
 [plugins]
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

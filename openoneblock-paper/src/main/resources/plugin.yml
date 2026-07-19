@@ -1,0 +1,20 @@
+name: OpenOneBlock
+version: '@version@'
+main: dev.openoneblock.paper.OpenOneBlockPlugin
+description: Build your own OneBlock experience.
+api-version: '1.21.11'
+author: Alexteens24
+website: https://github.com/Alexteens24/OpenOneBlock
+prefix: OpenOneBlock
+load: POSTWORLD
+softdepend:
+  - FastAsyncWorldEdit
+  - WorldEdit
+  - OpenEco
+  - Vault
+  - PlaceholderAPI
+  - ItemsAdder
+  - Oraxen
+  - Nexo
+  - CraftEngine
+  - MythicMobs
