@@ -2,6 +2,7 @@ package dev.openoneblock.core.locator;
 
 import dev.openoneblock.api.grid.GridPosition;
 import dev.openoneblock.api.id.ShardGroupId;
+import java.util.Collection;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -13,6 +14,21 @@ public final class InMemorySlotLocatorIndex implements CommittedSlotPublisher {
 
   /** Creates an empty runtime locator projection. */
   public InMemorySlotLocatorIndex() {}
+
+  /**
+   * Rebuilds a new isolated index from one authoritative startup snapshot.
+   *
+   * <p>Contradictory entries remain represented as fail-closed conflicted cells.
+   *
+   * @param entries database-committed non-free entries
+   * @return fully built index suitable for publication to event adapters
+   */
+  public static InMemorySlotLocatorIndex rebuild(Collection<SlotLocatorEntry> entries) {
+    Objects.requireNonNull(entries, "entries");
+    InMemorySlotLocatorIndex rebuilt = new InMemorySlotLocatorIndex();
+    entries.forEach(rebuilt::publishCommitted);
+    return rebuilt;
+  }
 
   /** {@inheritDoc} */
   @Override
