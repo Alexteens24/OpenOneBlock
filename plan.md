@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 261 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 264 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -654,7 +654,9 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
   rewards remain.
 - [~] Recovery handlers for create, reset, delete, deletion cleanup retry, and verified repair are
   active; migration, scheduled actions, and critical rewards remain.
-- [ ] Add bounded recovery concurrency across islands while preserving one lane per island.
+- [x] Bound startup recovery to deterministic batches of eight across islands; a failed batch waits
+  for its already-started peers, prevents later batches from starting, and every island mutation
+  still enters its own sequential lane.
 - [~] Mark unprovable create/reset/delete/cleanup-retry/repair state `BROKEN` with slot quarantine
   instead of guessing; future operation kinds must implement the same policy.
 - [ ] Persist recovery audit entries.
@@ -1149,7 +1151,8 @@ Migration numbering must remain append-only and checksummed.
   same database through V11, registered the cleanup-retry recovery scan, reached `READY`, and shut
   down cleanly through the live console. The repair artifact then upgraded the same database through
   V12, registered verified-repair recovery before protection publication, reached `READY`, and shut
-  down cleanly through the live console.
+  down cleanly through the live console. A subsequent restart with bounded recovery batches reached
+  the same `READY` state and clean shutdown without schema or projection drift.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

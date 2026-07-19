@@ -20,6 +20,7 @@ import dev.openoneblock.core.locator.WorldProjectionDefinition;
 import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
+import dev.openoneblock.core.recovery.BoundedRecoveryExecutor;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.core.team.IslandRoleRegistry;
 import dev.openoneblock.core.team.IslandTeamPolicy;
@@ -85,6 +86,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
   private static final CoordinateRange MINECRAFT_COORDINATES =
       new CoordinateRange(-30_000_000, 30_000_001);
   private static final int MAXIMUM_IN_FLIGHT_PER_ISLAND = 64;
+  private static final int MAXIMUM_CONCURRENT_RECOVERIES = 8;
 
   private final Plugin plugin;
   private final PlatformTaskScheduler scheduler;
@@ -360,28 +362,16 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               runtime = recovered;
               return repository
                   .findPendingCreationRequests()
-                  .thenCompose(
-                      pending ->
-                          sequence(pending.stream().map(creationService::recoverPending).toList()))
+                  .thenCompose(pending -> recover(pending, creationService::recoverPending))
                   .thenCompose(ignored -> resetRepository.findPendingResets())
-                  .thenCompose(
-                      pending ->
-                          sequence(pending.stream().map(resetService::recoverPending).toList()))
+                  .thenCompose(pending -> recover(pending, resetService::recoverPending))
                   .thenCompose(ignored -> deletionRepository.findPendingDeletions())
-                  .thenCompose(
-                      pending ->
-                          sequence(pending.stream().map(deletionService::recoverPending).toList()))
+                  .thenCompose(pending -> recover(pending, deletionService::recoverPending))
                   .thenCompose(ignored -> deletionRepository.findPendingCleanupRetries())
                   .thenCompose(
-                      pending ->
-                          sequence(
-                              pending.stream()
-                                  .map(deletionService::recoverPendingCleanupRetry)
-                                  .toList()))
+                      pending -> recover(pending, deletionService::recoverPendingCleanupRetry))
                   .thenCompose(ignored -> repairRepository.findPendingRepairs())
-                  .thenCompose(
-                      pending ->
-                          sequence(pending.stream().map(repairService::recoverPending).toList()))
+                  .thenCompose(pending -> recover(pending, repairService::recoverPending))
                   .thenCompose(ignored -> protectionSource.loadCommittedSnapshots())
                   .thenApply(
                       snapshots -> {
@@ -511,6 +501,11 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               fingerprint));
     }
     return List.copyOf(definitions);
+  }
+
+  private static <T, R> CompletionStage<List<R>> recover(
+      List<T> pending, Function<? super T, ? extends CompletionStage<? extends R>> recovery) {
+    return BoundedRecoveryExecutor.map(pending, MAXIMUM_CONCURRENT_RECOVERIES, recovery);
   }
 
   private static <T> CompletionStage<List<T>> sequence(List<CompletionStage<T>> stages) {
