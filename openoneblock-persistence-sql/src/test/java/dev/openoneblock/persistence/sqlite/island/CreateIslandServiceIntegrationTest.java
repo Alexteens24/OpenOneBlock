@@ -24,6 +24,8 @@ import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
 import dev.openoneblock.core.island.IslandCreationContext;
+import dev.openoneblock.core.island.IslandCreationFailedException;
+import dev.openoneblock.core.island.IslandCreationFailureRequest;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationStage;
@@ -34,6 +36,7 @@ import dev.openoneblock.core.locator.WorldProjectionRegistry;
 import dev.openoneblock.core.runtime.IslandChunkTicketController;
 import dev.openoneblock.core.runtime.IslandChunkTicketLease;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
+import dev.openoneblock.core.world.IslandCleanup;
 import dev.openoneblock.core.world.IslandWorldPreparation;
 import dev.openoneblock.core.world.WorldEffectOutcome;
 import dev.openoneblock.core.world.WorldEffectPlan;
@@ -134,11 +137,12 @@ class CreateIslandServiceIntegrationTest {
   }
 
   @Test
-  void verifiedWorldFailureCannotActivateAndAlwaysReleasesTickets() throws Exception {
+  void verifiedWorldFailureCleansArchivesAndReleasesSlotForSafeReuse() throws Exception {
     RecordingWorld world = new RecordingWorld();
     world.failEffectIndex = 1;
     RecordingTickets tickets = new RecordingTickets();
-    TestContext context = context("world-failure.db", world, tickets);
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    TestContext context = context("world-failure.db", world, tickets, cleanup);
     CreateIslandCommand command = command(player("3f058b52-a160-4c4f-9e00-2c2713810c58"));
 
     CompletionException failure =
@@ -146,14 +150,148 @@ class CreateIslandServiceIntegrationTest {
             CompletionException.class,
             () -> context.service().create(command).toCompletableFuture().join());
 
-    assertInstanceOf(IllegalStateException.class, failure.getCause());
+    assertInstanceOf(IslandCreationFailedException.class, failure.getCause());
     IslandAggregateSnapshot persisted =
         await(context.repository().findById(command.islandId())).orElseThrow();
-    assertEquals(IslandLifecycleState.CREATING, persisted.lifecycleState());
+    assertEquals(IslandLifecycleState.ARCHIVED, persisted.lifecycleState());
+    assertTrue(persisted.primarySlot().isEmpty());
     assertEquals(1, tickets.acquisitions.get());
     assertEquals(1, tickets.releases.get());
+    assertEquals(1, cleanup.calls.get());
     assertEquals(0, count(context.factory(), "magic_blocks"));
     assertEquals(0, count(context.factory(), "island_spawn_points"));
+
+    world.failEffectIndex = -1;
+    CreateIslandResult retried = await(context.service().create(command(command.ownerId())));
+    assertEquals(IslandLifecycleState.ACTIVE, retried.island().lifecycleState());
+    assertEquals(0, retried.island().primarySlot().orElseThrow().ordinal());
+  }
+
+  @Test
+  void ambiguousCleanupQuarantinesSlotAndNeverReusesIt() throws Exception {
+    RecordingWorld world = new RecordingWorld();
+    world.failEffectIndex = 1;
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.AMBIGUOUS);
+    TestContext context = context("ambiguous-cleanup.db", world, new RecordingTickets(), cleanup);
+    CreateIslandCommand failed = command(player("9d267704-a60f-4197-8957-60bbd72ed2a2"));
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () -> context.service().create(failed).toCompletableFuture().join());
+
+    IslandCreationFailedException terminal =
+        assertInstanceOf(IslandCreationFailedException.class, failure.getCause());
+    assertEquals(IslandLifecycleState.BROKEN, terminal.island().lifecycleState());
+    assertEquals(
+        dev.openoneblock.core.slot.SlotState.QUARANTINED,
+        terminal.island().primarySlot().orElseThrow().state());
+    assertTrue(terminal.island().pendingOperationId().isEmpty());
+
+    CompletionException replay =
+        assertThrows(
+            CompletionException.class,
+            () -> context.service().create(failed).toCompletableFuture().join());
+    IslandCreationFailedException stored =
+        assertInstanceOf(IslandCreationFailedException.class, replay.getCause());
+    assertEquals(terminal.island(), stored.island());
+    assertEquals(1, cleanup.calls.get());
+
+    world.failEffectIndex = -1;
+    CreateIslandResult another =
+        await(context.service().create(command(player("784b2708-62af-4f37-9c45-6d46a82531dd"))));
+    assertEquals(1, another.island().primarySlot().orElseThrow().ordinal());
+  }
+
+  @Test
+  void ticketFailureBeforeWorldWorkArchivesAndReleasesWithoutCleanup() throws Exception {
+    RecordingWorld world = new RecordingWorld();
+    RecordingTickets tickets = new RecordingTickets();
+    tickets.failAcquisition = true;
+    RecordingCleanup cleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    TestContext context = context("ticket-failure.db", world, tickets, cleanup);
+    PlayerId owner = player("ab578ee4-a2aa-422a-992e-4a6de24a8dbd");
+    CreateIslandCommand failed = command(owner);
+
+    CompletionException failure =
+        assertThrows(
+            CompletionException.class,
+            () -> context.service().create(failed).toCompletableFuture().join());
+
+    IslandCreationFailedException terminal =
+        assertInstanceOf(IslandCreationFailedException.class, failure.getCause());
+    assertEquals(IslandLifecycleState.ARCHIVED, terminal.island().lifecycleState());
+    assertEquals(0, world.executions.get());
+    assertEquals(0, cleanup.calls.get());
+    assertEquals(0, tickets.releases.get());
+
+    tickets.failAcquisition = false;
+    CreateIslandResult retried = await(context.service().create(command(owner)));
+    assertEquals(0, retried.island().primarySlot().orElseThrow().ordinal());
+  }
+
+  @Test
+  void restartDuringCleaningResumesCleanupBeforeRecoveryCompletes() throws Exception {
+    TestContext initial =
+        context(
+            "resume-cleanup.db",
+            new RecordingWorld(),
+            new RecordingTickets(),
+            new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN));
+    IslandCreationRequest request = request(player("aa98f311-cea6-47f9-8c08-3452eb76292b"));
+    IslandAggregateSnapshot allocated = await(initial.repository().createAllocation(request));
+    IslandAggregateSnapshot creating =
+        await(
+            initial
+                .repository()
+                .advanceCreation(
+                    new IslandCreationTransitionRequest(
+                        allocated.islandId(),
+                        request.operationId(),
+                        IslandCreationStage.BEGIN_PREPARATION,
+                        allocated.version(),
+                        allocated.primarySlot().orElseThrow().version(),
+                        NOW.plusSeconds(1))));
+    WorldEffectPlan mutation =
+        new WorldEffectPlan.SetVanillaBlock(
+            new dev.openoneblock.core.world.WorldEffectKey(request.operationId(), 0),
+            request.islandId(),
+            new dev.openoneblock.core.world.WorldBlockPosition(WORLD, 0, 64, 0),
+            NamespacedId.parse("minecraft:grass_block"));
+    SqliteWorldEffectJournal journal =
+        new SqliteWorldEffectJournal(initial.factory(), Runnable::run);
+    await(journal.register(mutation, NOW));
+    await(journal.markDispatched(mutation, NOW.plusSeconds(1)));
+    IslandAggregateSnapshot cleaning =
+        await(
+            initial
+                .repository()
+                .beginCreationCleanup(
+                    new IslandCreationFailureRequest(
+                        creating.islandId(),
+                        request.operationId(),
+                        creating.version(),
+                        creating.primarySlot().orElseThrow().version(),
+                        "simulated crash after cleanup intent",
+                        NOW.plusSeconds(2))));
+    assertEquals(
+        dev.openoneblock.core.slot.SlotState.CLEANING,
+        cleaning.primarySlot().orElseThrow().state());
+
+    RecordingCleanup restartedCleanup = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    TestContext restarted =
+        context(
+            "resume-cleanup.db", new RecordingWorld(), new RecordingTickets(), restartedCleanup);
+    List<IslandCreationRequest> pending =
+        await(restarted.repository().findPendingCreationRequests());
+
+    assertEquals(List.of(request), pending);
+    await(restarted.service().recoverPending(request));
+    assertEquals(1, restartedCleanup.calls.get());
+    assertEquals(
+        IslandLifecycleState.ARCHIVED,
+        await(restarted.repository().findById(request.islandId())).orElseThrow().lifecycleState());
+    assertTrue(await(restarted.repository().findPendingCreationRequests()).isEmpty());
   }
 
   @Test
@@ -229,6 +367,15 @@ class CreateIslandServiceIntegrationTest {
   }
 
   private TestContext context(String databaseName, RecordingWorld world, RecordingTickets tickets) {
+    return context(
+        databaseName, world, tickets, new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN));
+  }
+
+  private TestContext context(
+      String databaseName,
+      RecordingWorld world,
+      RecordingTickets tickets,
+      RecordingCleanup cleanup) {
     SqliteConnectionFactory factory =
         new SqliteConnectionFactory(temporaryDirectory.resolve(databaseName), 100);
     new SqliteSchemaMigrator(factory).migrate();
@@ -256,6 +403,7 @@ class CreateIslandServiceIntegrationTest {
             -64,
             320,
             preparation,
+            cleanup,
             Clock.fixed(NOW, ZoneOffset.UTC));
     return new TestContext(factory, repository, lanes, runtimes, service);
   }
@@ -335,7 +483,7 @@ class CreateIslandServiceIntegrationTest {
         return CompletableFuture.completedFuture(
             new WorldEffectOutcome(
                 WorldEffectOutcome.Status.VERIFIED_FAILURE,
-                effect.kind().mutatesWorld(),
+                effect.kind().mutatesWorld() || effect instanceof WorldEffectPlan.VerifyCleanRegion,
                 "intentional test failure"));
       }
       return CompletableFuture.completedFuture(
@@ -354,11 +502,16 @@ class CreateIslandServiceIntegrationTest {
   private static final class RecordingTickets implements IslandChunkTicketController {
     private final AtomicInteger acquisitions = new AtomicInteger();
     private final AtomicInteger releases = new AtomicInteger();
+    private boolean failAcquisition;
 
     @Override
     public CompletionStage<IslandChunkTicketLease> acquire(
         dev.openoneblock.core.runtime.IslandChunkTicketRequest request) {
       acquisitions.incrementAndGet();
+      if (failAcquisition) {
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("intentional ticket acquisition failure"));
+      }
       AtomicBoolean released = new AtomicBoolean();
       return CompletableFuture.completedFuture(
           new IslandChunkTicketLease() {
@@ -375,6 +528,22 @@ class CreateIslandServiceIntegrationTest {
               return CompletableFuture.completedFuture(null);
             }
           });
+    }
+  }
+
+  private static final class RecordingCleanup implements IslandCleanup {
+    private final Status status;
+    private final AtomicInteger calls = new AtomicInteger();
+
+    private RecordingCleanup(Status status) {
+      this.status = status;
+    }
+
+    @Override
+    public CompletionStage<Result> cleanup(Plan plan) {
+      calls.incrementAndGet();
+      return CompletableFuture.completedFuture(
+          new Result(status, "test cleanup " + status.name().toLowerCase()));
     }
   }
 }

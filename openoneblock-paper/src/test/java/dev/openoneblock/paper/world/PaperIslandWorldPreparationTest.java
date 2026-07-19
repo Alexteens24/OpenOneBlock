@@ -104,6 +104,7 @@ class PaperIslandWorldPreparationTest {
 
     assertEquals(WorldEffectOutcome.Status.VERIFIED_SUCCESS, empty.status());
     assertEquals(WorldEffectOutcome.Status.VERIFIED_FAILURE, residue.status());
+    assertTrue(residue.cleanupRequired());
     assertTrue(residue.diagnostic().contains("5,3,7"));
     assertEquals(2, scheduler.asyncDispatches.get());
     assertEquals(0, scheduler.ownershipViolations.get());

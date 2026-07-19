@@ -23,6 +23,7 @@ import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.Provisioned
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
 import dev.openoneblock.paper.runtime.PaperIslandChunkTicketController;
 import dev.openoneblock.paper.world.BukkitVoidWorldFactory;
+import dev.openoneblock.paper.world.PaperIslandCleanup;
 import dev.openoneblock.paper.world.PaperIslandWorldPreparation;
 import dev.openoneblock.paper.world.PaperSharedWorldManager;
 import dev.openoneblock.paper.world.ProvisionedSharedWorld;
@@ -196,6 +197,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       minimumY,
                       maximumYExclusive,
                       preparationCoordinator,
+                      new PaperIslandCleanup(plugin, plugin.getServer(), scheduler),
                       clock);
               FoundationRuntime recovered =
                   new FoundationRuntime(
@@ -213,7 +215,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
               return repository
                   .findPendingCreationRequests()
                   .thenCompose(
-                      pending -> sequence(pending.stream().map(creationService::resume).toList()))
+                      pending ->
+                          sequence(pending.stream().map(creationService::recoverPending).toList()))
                   .thenApply(ignored -> recovered);
             });
   }

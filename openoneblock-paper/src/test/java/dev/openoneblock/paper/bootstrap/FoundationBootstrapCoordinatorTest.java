@@ -15,6 +15,8 @@ import dev.openoneblock.core.grid.GridGeometry;
 import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
 import dev.openoneblock.core.island.IslandCreationActivationRequest;
+import dev.openoneblock.core.island.IslandCreationCleanupCompletionRequest;
+import dev.openoneblock.core.island.IslandCreationFailureRequest;
 import dev.openoneblock.core.island.IslandCreationRepository;
 import dev.openoneblock.core.island.IslandCreationRequest;
 import dev.openoneblock.core.island.IslandCreationTransitionRequest;
@@ -204,6 +206,11 @@ class FoundationBootstrapCoordinatorTest {
             minimumY,
             maximumY,
             preparation,
+            plan ->
+                CompletableFuture.completedFuture(
+                    new dev.openoneblock.core.world.IslandCleanup.Result(
+                        dev.openoneblock.core.world.IslandCleanup.Status.VERIFIED_CLEAN,
+                        "test cleanup verified")),
             java.time.Clock.systemUTC());
     return new FoundationRuntime(
         configuration,
@@ -324,6 +331,24 @@ class FoundationBootstrapCoordinatorTest {
     @Override
     public CompletionStage<IslandAggregateSnapshot> activateCreation(
         IslandCreationActivationRequest request) {
+      return unsupported();
+    }
+
+    @Override
+    public CompletionStage<IslandAggregateSnapshot> abortCreationBeforeWorldWork(
+        IslandCreationFailureRequest request) {
+      return unsupported();
+    }
+
+    @Override
+    public CompletionStage<IslandAggregateSnapshot> beginCreationCleanup(
+        IslandCreationFailureRequest request) {
+      return unsupported();
+    }
+
+    @Override
+    public CompletionStage<IslandAggregateSnapshot> completeCreationCleanup(
+        IslandCreationCleanupCompletionRequest request) {
       return unsupported();
     }
 

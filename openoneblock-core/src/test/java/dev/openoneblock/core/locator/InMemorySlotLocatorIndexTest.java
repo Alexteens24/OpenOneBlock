@@ -69,6 +69,39 @@ class InMemorySlotLocatorIndexTest {
     assertEquals(0, index.size());
   }
 
+  @Test
+  void committedReleaseRemovesOnlyMatchingNonNewerOwnership() {
+    InMemorySlotLocatorIndex index = new InMemorySlotLocatorIndex();
+    SlotId slotId = SlotId.generate();
+    IslandId islandId = IslandId.generate();
+    SlotLocatorEntry preparing = entry(slotId, islandId, SlotState.PREPARING, 4);
+    index.publishCommitted(preparing);
+
+    assertEquals(LocatorRemovalDecision.APPLIED, index.removeCommitted(preparing));
+    assertInstanceOf(SlotLocatorLookup.Empty.class, index.lookup(SHARD, POSITION));
+    assertEquals(LocatorRemovalDecision.ALREADY_ABSENT, index.removeCommitted(preparing));
+  }
+
+  @Test
+  void staleOrContradictoryReleaseCannotRemoveCurrentProjection() {
+    InMemorySlotLocatorIndex index = new InMemorySlotLocatorIndex();
+    SlotId slotId = SlotId.generate();
+    IslandId islandId = IslandId.generate();
+    SlotLocatorEntry cleaning = entry(slotId, islandId, SlotState.CLEANING, 5);
+    index.publishCommitted(cleaning);
+
+    assertEquals(
+        LocatorRemovalDecision.CONFLICTED,
+        index.removeCommitted(entry(slotId, islandId, SlotState.PREPARING, 4)));
+    assertEquals(
+        LocatorRemovalDecision.CONFLICTED,
+        index.removeCommitted(
+            entry(SlotId.generate(), IslandId.generate(), SlotState.CLEANING, 5)));
+    assertEquals(
+        cleaning,
+        assertInstanceOf(SlotLocatorLookup.Resolved.class, index.lookup(SHARD, POSITION)).entry());
+  }
+
   private static SlotLocatorEntry entry(
       SlotId slotId, IslandId islandId, SlotState state, long version) {
     return new SlotLocatorEntry(SHARD, POSITION, slotId, islandId, state, version);

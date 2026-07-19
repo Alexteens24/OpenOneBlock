@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 161 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 171 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, and does not yet
 register `/oneblock` commands or gameplay listeners.
 
@@ -120,15 +120,19 @@ register `/oneblock` commands or gameplay listeners.
   activation.
 - [x] Startup recovery now replays persisted `ALLOCATING` and `CREATING` intents from their original
   world/profile/phase/starter/build-height context before publishing `READY`.
+- [x] Creation failure policy with durable pre-dispatch abort, `BROKEN/CLEANING` intent, verified
+  native block/entity cleanup, safe locator removal, slot reuse after clean evidence, and mandatory
+  quarantine after failed or ambiguous cleanup.
 - [x] Unit and integration tests for concurrency, rollback, restart, idempotency, projection conflicts,
   signed boundaries, scheduler routing, entity retirement, and void-world configuration.
 
 ### Partially implemented areas
 
-- [~] Island creation: the successful path is complete; cleanup, quarantine, post-activation
-  teleport, and event publication remain.
-- [~] Crash recovery: successful pending creations resume automatically; failed or ambiguous world
-  preparation still needs cleanup/release/quarantine decisions.
+- [~] Island creation: success, cleanup, quarantine, and stored failure replay are complete;
+  post-activation teleport/event publication and normalized initial counters/variables remain.
+- [x] Crash recovery for the current creation pipeline resumes allocation, preparation, and cleanup;
+  it activates only from verified effects, releases only after verified clean evidence, and otherwise
+  keeps the slot quarantined.
 - [~] Folia support: scheduler adapters exist, but every future listener and integration still needs an
   ownership audit before `folia-supported: true` is safe.
 - [~] Island aggregate: creation header, owner membership, primary spawn, initial progression, and
@@ -377,7 +381,7 @@ Goal: complete `/ob create` semantics from membership validation through activat
 - [x] Atomically allocate island, owner membership, slot, and durable operation.
 - [x] Transition to `CREATING/PREPARING` before the first world effect.
 - [x] Acquire required chunk tickets.
-- [ ] Clear residue when policy requires it.
+- [x] Clear residue when policy requires it.
 - [x] Apply starter content through the preparation port.
 - [x] Create the first Magic Block record and world block.
 - [~] Persist spawn point, phase, counters, and variables. Spawn/phase are persisted atomically;
@@ -391,11 +395,11 @@ Goal: complete `/ob create` semantics from membership validation through activat
 
 ### Failure policy
 
-- [ ] Failure before world work archives the island and releases the `RESERVED` slot atomically.
-- [ ] Failure after world work starts transitions into cleanup.
-- [ ] Verified cleanup may archive/release.
-- [ ] Failed or ambiguous cleanup marks island `BROKEN` and slot `QUARANTINED`.
-- [ ] Never infer `ACTIVE` from blocks being present.
+- [x] Failure before world work archives the island and releases the `RESERVED` slot atomically.
+- [x] Failure after world work starts transitions into cleanup.
+- [x] Verified cleanup may archive/release.
+- [x] Failed or ambiguous cleanup marks island `BROKEN` and slot `QUARANTINED`.
+- [x] Never infer `ACTIVE` from blocks being present.
 
 ### Acceptance tests
 
@@ -404,7 +408,7 @@ Goal: complete `/ob create` semantics from membership validation through activat
   do not exist yet.
 - [x] Restart at every currently durable creation phase resumes the correct next step.
 - [x] Paste/place failure cannot activate the island.
-- [ ] Cleanup uncertainty quarantines the slot.
+- [x] Cleanup uncertainty quarantines the slot.
 
 ## Milestone 7 — Commands and minimal player workflow (`P0`)
 

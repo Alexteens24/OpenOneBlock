@@ -82,7 +82,8 @@ public final class IslandLifecyclePolicy {
         EnumSet.of(
             IslandLifecycleState.LOCKED,
             IslandLifecycleState.RESETTING,
-            IslandLifecycleState.DELETING));
+            IslandLifecycleState.DELETING,
+            IslandLifecycleState.ARCHIVED));
     transitions.put(IslandLifecycleState.ARCHIVED, EnumSet.of(IslandLifecycleState.ALLOCATING));
     return Map.copyOf(transitions);
   }

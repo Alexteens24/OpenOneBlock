@@ -68,6 +68,35 @@ public final class InMemorySlotLocatorIndex implements CommittedSlotPublisher {
     return Objects.requireNonNull(decision.get(), "locator publication decision");
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public LocatorRemovalDecision removeCommitted(SlotLocatorEntry releasedEntry) {
+    Objects.requireNonNull(releasedEntry, "releasedEntry");
+    Key key = new Key(releasedEntry.shardGroupId(), releasedEntry.gridPosition());
+    AtomicReference<LocatorRemovalDecision> decision = new AtomicReference<>();
+    entries.compute(
+        key,
+        (ignored, current) -> {
+          if (current == null || current instanceof SlotLocatorLookup.Empty) {
+            decision.set(LocatorRemovalDecision.ALREADY_ABSENT);
+            return null;
+          }
+          if (current instanceof SlotLocatorLookup.Conflicted) {
+            decision.set(LocatorRemovalDecision.CONFLICTED);
+            return current;
+          }
+          SlotLocatorEntry existing = ((SlotLocatorLookup.Resolved) current).entry();
+          if (!sameOwnership(existing, releasedEntry)
+              || existing.slotVersion() > releasedEntry.slotVersion()) {
+            decision.set(LocatorRemovalDecision.CONFLICTED);
+            return current;
+          }
+          decision.set(LocatorRemovalDecision.APPLIED);
+          return null;
+        });
+    return Objects.requireNonNull(decision.get(), "locator removal decision");
+  }
+
   /**
    * Resolves one logical cell without database access or island scans.
    *

@@ -32,6 +32,7 @@ class IslandLifecyclePolicyTest {
           edge("BROKEN", "LOCKED"),
           edge("BROKEN", "RESETTING"),
           edge("BROKEN", "DELETING"),
+          edge("BROKEN", "ARCHIVED"),
           edge("ARCHIVED", "ALLOCATING"));
 
   @Test

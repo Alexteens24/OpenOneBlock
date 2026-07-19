@@ -10,4 +10,14 @@ public interface CommittedSlotPublisher {
    * @return deterministic publication decision
    */
   LocatorPublishDecision publishCommitted(SlotLocatorEntry entry);
+
+  /**
+   * Removes an ownership projection only when it still matches the committed pre-release entry.
+   *
+   * @param releasedEntry final non-free entry observed by the release transaction
+   * @return deterministic removal decision
+   */
+  default LocatorRemovalDecision removeCommitted(SlotLocatorEntry releasedEntry) {
+    return LocatorRemovalDecision.UNSUPPORTED;
+  }
 }

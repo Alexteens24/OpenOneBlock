@@ -34,6 +34,34 @@ public interface IslandCreationRepository {
       IslandCreationActivationRequest request);
 
   /**
+   * Archives a failed creation and releases its reserved/preparing slot only if no world effect was
+   * dispatched.
+   *
+   * @param request optimistic failure evidence
+   * @return committed archived island
+   */
+  CompletionStage<IslandAggregateSnapshot> abortCreationBeforeWorldWork(
+      IslandCreationFailureRequest request);
+
+  /**
+   * Marks the failed island broken and its slot cleaning before cleanup is dispatched.
+   *
+   * @param request optimistic failure evidence
+   * @return committed broken/cleaning aggregate
+   */
+  CompletionStage<IslandAggregateSnapshot> beginCreationCleanup(
+      IslandCreationFailureRequest request);
+
+  /**
+   * Applies verified cleanup evidence by releasing or quarantining the slot atomically.
+   *
+   * @param request explicit terminal cleanup evidence
+   * @return archived island when clean, otherwise broken quarantined island
+   */
+  CompletionStage<IslandAggregateSnapshot> completeCreationCleanup(
+      IslandCreationCleanupCompletionRequest request);
+
+  /**
    * Reads one authoritative island snapshot without loading world state.
    *
    * @param islandId island identity

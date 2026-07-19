@@ -15,6 +15,7 @@ import dev.openoneblock.core.runtime.IslandActivityReason;
 import dev.openoneblock.core.runtime.IslandRuntimeHeader;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.core.slot.SlotState;
+import dev.openoneblock.core.world.IslandCleanup;
 import dev.openoneblock.core.world.IslandWorldPreparationPlan;
 import dev.openoneblock.core.world.MinimalStarterPreparationPlanFactory;
 import dev.openoneblock.core.world.WorldEffectPlan;
@@ -44,6 +45,7 @@ public final class CreateIslandService {
   private final int minimumY;
   private final int maximumYExclusive;
   private final WorldPreparationCoordinator preparation;
+  private final IslandCleanup cleanup;
   private final Clock clock;
 
   /**
@@ -59,6 +61,7 @@ public final class CreateIslandService {
    * @param minimumY inclusive configured preparation height
    * @param maximumYExclusive exclusive configured preparation height
    * @param preparation durable world preparation coordinator
+   * @param cleanup verified bounded cleanup provider
    * @param clock application clock
    */
   public CreateIslandService(
@@ -72,6 +75,7 @@ public final class CreateIslandService {
       int minimumY,
       int maximumYExclusive,
       WorldPreparationCoordinator preparation,
+      IslandCleanup cleanup,
       Clock clock) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.lanes = Objects.requireNonNull(lanes, "lanes");
@@ -90,6 +94,7 @@ public final class CreateIslandService {
     this.minimumY = minimumY;
     this.maximumYExclusive = maximumYExclusive;
     this.preparation = Objects.requireNonNull(preparation, "preparation");
+    this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
     this.clock = Objects.requireNonNull(clock, "clock");
   }
 
@@ -141,6 +146,24 @@ public final class CreateIslandService {
     return submit(request);
   }
 
+  /**
+   * Recovers one pending intent and treats a durably archived/quarantined failure as resolved.
+   *
+   * @param request persisted pending creation request
+   * @return completion after activation or committed failure disposition
+   */
+  public CompletionStage<Void> recoverPending(IslandCreationRequest request) {
+    return resume(request)
+        .handle(
+            (ignored, failure) -> {
+              Throwable cause = unwrap(failure);
+              if (cause == null || cause instanceof IslandCreationFailedException) {
+                return null;
+              }
+              throw new CompletionException(cause);
+            });
+  }
+
   private CompletionStage<CreateIslandResult> submit(IslandCreationRequest request) {
     IslandOperationRequest laneRequest =
         new IslandOperationRequest(
@@ -190,6 +213,10 @@ public final class CreateIslandService {
     if (snapshot.lifecycleState() == IslandLifecycleState.ACTIVE) {
       return CompletableFuture.completedFuture(new CreateIslandResult(snapshot, true));
     }
+    if (snapshot.lifecycleState() == IslandLifecycleState.BROKEN
+        && snapshot.primarySlot().orElseThrow().state() == SlotState.CLEANING) {
+      return retainAndCleanup(snapshot, request, world, geometry);
+    }
     CompletionStage<IslandAggregateSnapshot> creating;
     if (snapshot.lifecycleState() == IslandLifecycleState.ALLOCATING) {
       var slot = snapshot.primarySlot().orElseThrow();
@@ -224,9 +251,14 @@ public final class CreateIslandService {
             creating.islandId(), world.worldId(), slot.gridPosition(), reserved);
     return runtimes
         .retain(header, IslandActivityReason.WORLD_PREPARATION, request.operationId())
-        .thenCompose(
-            lease ->
-                withLease(lease, () -> prepareAndActivate(creating, request, world, geometry)));
+        .handle(
+            (lease, failure) -> {
+              if (failure != null) {
+                return abortBeforeWorldAndFail(creating, request, unwrap(failure));
+              }
+              return withLease(lease, () -> prepareAndActivate(creating, request, world, geometry));
+            })
+        .thenCompose(Function.identity());
   }
 
   private CompletionStage<CreateIslandResult> prepareAndActivate(
@@ -248,9 +280,7 @@ public final class CreateIslandService {
         .thenCompose(
             report -> {
               if (report.status() != WorldPreparationReport.Status.VERIFIED_SUCCESS) {
-                return CompletableFuture.failedFuture(
-                    new IllegalStateException(
-                        "world preparation did not verify: " + report.diagnostic()));
+                return handlePreparationFailure(creating, request, world, geometry, report);
               }
               WorldEffectPlan.SetVanillaBlock block =
                   plan.effects().stream()
@@ -284,6 +314,125 @@ public final class CreateIslandService {
                   .activateCreation(activation)
                   .thenApply(active -> new CreateIslandResult(active, false));
             });
+  }
+
+  private CompletionStage<CreateIslandResult> handlePreparationFailure(
+      IslandAggregateSnapshot creating,
+      IslandCreationRequest request,
+      WorldProjection world,
+      GridGeometry geometry,
+      WorldPreparationReport report) {
+    if (!report.cleanupRequired()) {
+      return abortBeforeWorldAndFail(creating, request, report.diagnostic());
+    }
+    IslandCreationFailureRequest failure =
+        failureRequest(creating, request.operationId(), report.diagnostic());
+    return repository
+        .beginCreationCleanup(failure)
+        .thenCompose(broken -> cleanupBroken(broken, request, world, geometry));
+  }
+
+  private CompletionStage<CreateIslandResult> abortBeforeWorldAndFail(
+      IslandAggregateSnapshot creating, IslandCreationRequest request, Throwable failure) {
+    return abortBeforeWorldAndFail(creating, request, diagnostic(failure));
+  }
+
+  private CompletionStage<CreateIslandResult> abortBeforeWorldAndFail(
+      IslandAggregateSnapshot creating, IslandCreationRequest request, String diagnostic) {
+    return repository
+        .abortCreationBeforeWorldWork(failureRequest(creating, request.operationId(), diagnostic))
+        .thenCompose(
+            archived ->
+                CompletableFuture.failedFuture(
+                    new IslandCreationFailedException(diagnostic, archived)));
+  }
+
+  private CompletionStage<CreateIslandResult> retainAndCleanup(
+      IslandAggregateSnapshot broken,
+      IslandCreationRequest request,
+      WorldProjection world,
+      GridGeometry geometry) {
+    var slot = broken.primarySlot().orElseThrow();
+    IslandRuntimeHeader header =
+        new IslandRuntimeHeader(
+            broken.islandId(),
+            world.worldId(),
+            slot.gridPosition(),
+            geometry.reservedRegion(slot.gridPosition()));
+    return runtimes
+        .retain(header, IslandActivityReason.CLEANUP, request.operationId())
+        .thenCompose(
+            lease -> withLease(lease, () -> cleanupBroken(broken, request, world, geometry)));
+  }
+
+  private CompletionStage<CreateIslandResult> cleanupBroken(
+      IslandAggregateSnapshot broken,
+      IslandCreationRequest request,
+      WorldProjection world,
+      GridGeometry geometry) {
+    IslandCreationContext context = request.context();
+    var slot = broken.primarySlot().orElseThrow();
+    IslandCleanup.Plan plan =
+        new IslandCleanup.Plan(
+            request.operationId(),
+            broken.islandId(),
+            world.worldId(),
+            geometry.reservedRegion(slot.gridPosition()),
+            context.minimumY(),
+            context.maximumYExclusive());
+    CompletionStage<IslandCleanup.Result> cleanupResult;
+    try {
+      cleanupResult = Objects.requireNonNull(cleanup.cleanup(plan), "cleanup completion");
+    } catch (Throwable failure) {
+      cleanupResult = CompletableFuture.failedFuture(failure);
+    }
+    return cleanupResult
+        .handle(
+            (result, failure) ->
+                failure == null
+                    ? result
+                    : new IslandCleanup.Result(
+                        IslandCleanup.Status.AMBIGUOUS, diagnostic(unwrap(failure))))
+        .thenCompose(
+            result ->
+                repository
+                    .completeCreationCleanup(
+                        new IslandCreationCleanupCompletionRequest(
+                            broken.islandId(),
+                            request.operationId(),
+                            broken.version(),
+                            slot.version(),
+                            result.status(),
+                            result.diagnostic(),
+                            clock.instant()))
+                    .thenCompose(
+                        terminal ->
+                            CompletableFuture.failedFuture(
+                                new IslandCreationFailedException(
+                                    "island creation failed; cleanup "
+                                        + result.status().name().toLowerCase(java.util.Locale.ROOT)
+                                        + ": "
+                                        + result.diagnostic(),
+                                    terminal))));
+  }
+
+  private IslandCreationFailureRequest failureRequest(
+      IslandAggregateSnapshot island,
+      dev.openoneblock.api.id.OperationId operationId,
+      String diagnostic) {
+    return new IslandCreationFailureRequest(
+        island.islandId(),
+        operationId,
+        island.version(),
+        island.primarySlot().orElseThrow().version(),
+        diagnostic,
+        clock.instant());
+  }
+
+  private static String diagnostic(Throwable failure) {
+    String message = failure.getMessage();
+    return failure.getClass().getSimpleName()
+        + (message == null || message.isBlank() ? "" : ": " + message);
   }
 
   private static <T> CompletionStage<T> withLease(

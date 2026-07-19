@@ -217,7 +217,7 @@ public final class PaperIslandWorldPreparation implements IslandWorldPreparation
               Material material = snapshot.getBlockType(x - baseX, y, z - baseZ);
               if (!materials.isAir(material)) {
                 return failure(
-                    false,
+                    true,
                     "clean-cell verification found "
                         + materials.key(material)
                         + " at "
