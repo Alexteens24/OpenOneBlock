@@ -24,6 +24,7 @@ import dev.openoneblock.core.island.CreateIslandResult;
 import dev.openoneblock.core.island.CreateIslandService;
 import dev.openoneblock.core.island.DeleteIslandService;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandCleanupRetryRequest;
 import dev.openoneblock.core.island.IslandCreationContext;
 import dev.openoneblock.core.island.IslandCreationFailedException;
 import dev.openoneblock.core.island.IslandCreationFailureRequest;
@@ -529,8 +530,7 @@ class CreateIslandServiceIntegrationTest {
   }
 
   @Test
-  void verifiedCleanupQuarantinesWhenAnotherNonTerminalOperationReferencesSlot()
-      throws Exception {
+  void verifiedCleanupQuarantinesWhenAnotherNonTerminalOperationReferencesSlot() throws Exception {
     TestContext context =
         context("delete-reference-conflict.db", new RecordingWorld(), new RecordingTickets());
     PlayerId owner = player("e9515fe3-fbdf-44bd-84d0-d91c79b10a2f");
@@ -556,6 +556,77 @@ class CreateIslandServiceIntegrationTest {
         dev.openoneblock.core.slot.SlotState.QUARANTINED,
         broken.primarySlot().orElseThrow().state());
     assertEquals(0, freeSlots(context.factory()));
+  }
+
+  @Test
+  void explicitCleanupRetryReverifiesThenArchivesAndReleasesExactlyOnce() throws Exception {
+    TestContext context =
+        context("delete-cleanup-retry.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("6831a259-0253-49ca-9730-f1a8478e8d08");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    DeleteIslandService failing =
+        deleteService(context, repository, new RecordingCleanup(IslandCleanup.Status.AMBIGUOUS));
+    assertThrows(
+        CompletionException.class,
+        () -> failing.delete(deletion(created, owner)).toCompletableFuture().join());
+    IslandAggregateSnapshot broken =
+        await(context.repository().findById(created.island().islandId())).orElseThrow();
+    IslandCleanupRetryRequest retry = cleanupRetry(broken, PlayerId.of(UUID.randomUUID()));
+    RecordingCleanup verified = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    DeleteIslandService repair = deleteService(context, repository, verified);
+
+    var result = await(repair.retryCleanup(retry));
+    var replay = await(repair.retryCleanup(retry));
+
+    assertTrue(!result.replay());
+    assertTrue(replay.replay());
+    assertEquals(1, verified.calls.get());
+    assertEquals(
+        IslandLifecycleState.ARCHIVED,
+        await(context.repository().findById(created.island().islandId()))
+            .orElseThrow()
+            .lifecycleState());
+    assertEquals(1, freeSlots(context.factory()));
+    assertEquals(
+        0,
+        slotOperationReferences(
+            context.factory(), created.island().primarySlot().orElseThrow().slotId()));
+  }
+
+  @Test
+  void restartRecoveryFindsAndCompletesPendingCleanupRetry() throws Exception {
+    TestContext context =
+        context("delete-cleanup-retry-recovery.db", new RecordingWorld(), new RecordingTickets());
+    PlayerId owner = player("69621f60-0024-4e83-9469-9493ed902417");
+    CreateIslandResult created = await(context.service().create(command(owner)));
+    SqliteIslandDeletionRepository repository =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    assertThrows(
+        CompletionException.class,
+        () ->
+            deleteService(
+                    context,
+                    repository,
+                    new RecordingCleanup(IslandCleanup.Status.VERIFIED_FAILURE))
+                .delete(deletion(created, owner))
+                .toCompletableFuture()
+                .join());
+    IslandAggregateSnapshot broken =
+        await(context.repository().findById(created.island().islandId())).orElseThrow();
+    IslandCleanupRetryRequest retry = cleanupRetry(broken, PlayerId.of(UUID.randomUUID()));
+    await(repository.beginCleanupRetry(retry));
+
+    SqliteIslandDeletionRepository restarted =
+        new SqliteIslandDeletionRepository(context.factory(), context.locator(), Runnable::run);
+    assertEquals(List.of(retry), await(restarted.findPendingCleanupRetries()));
+    RecordingCleanup verified = new RecordingCleanup(IslandCleanup.Status.VERIFIED_CLEAN);
+    await(deleteService(context, restarted, verified).recoverPendingCleanupRetry(retry));
+
+    assertTrue(await(restarted.findPendingCleanupRetries()).isEmpty());
+    assertEquals(1, verified.calls.get());
+    assertEquals(1, freeSlots(context.factory()));
   }
 
   @Test
@@ -972,6 +1043,19 @@ class CreateIslandServiceIntegrationTest {
         NOW.plusSeconds(10));
   }
 
+  private static IslandCleanupRetryRequest cleanupRetry(
+      IslandAggregateSnapshot broken, PlayerId administrator) {
+    return new IslandCleanupRetryRequest(
+        broken.islandId(),
+        OperationId.generate(),
+        administrator,
+        broken.version(),
+        broken.primarySlot().orElseThrow().version(),
+        -64,
+        320,
+        NOW.plusSeconds(30));
+  }
+
   private static IslandResetRequest reset(CreateIslandResult created, PlayerId owner) {
     return new IslandResetRequest(
         created.island().islandId(),
@@ -1072,8 +1156,7 @@ class CreateIslandServiceIntegrationTest {
   }
 
   private static int slotOperationReferences(
-      SqliteConnectionFactory factory, dev.openoneblock.core.slot.SlotId slotId)
-      throws Exception {
+      SqliteConnectionFactory factory, dev.openoneblock.core.slot.SlotId slotId) throws Exception {
     try (Connection connection = factory.open();
         var statement =
             connection.prepareStatement("SELECT COUNT(*) FROM operations WHERE slot_id = ?")) {
@@ -1086,9 +1169,7 @@ class CreateIslandServiceIntegrationTest {
   }
 
   private static void insertNonTerminalSlotOperation(
-      SqliteConnectionFactory factory,
-      IslandId islandId,
-      dev.openoneblock.core.slot.SlotId slotId)
+      SqliteConnectionFactory factory, IslandId islandId, dev.openoneblock.core.slot.SlotId slotId)
       throws Exception {
     try (Connection connection = factory.open();
         var statement =

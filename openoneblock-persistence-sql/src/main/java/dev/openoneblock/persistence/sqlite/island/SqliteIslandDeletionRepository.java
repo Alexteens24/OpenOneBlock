@@ -7,6 +7,7 @@ import dev.openoneblock.api.id.PlayerId;
 import dev.openoneblock.api.id.ShardGroupId;
 import dev.openoneblock.api.island.IslandLifecycleState;
 import dev.openoneblock.core.island.IslandAggregateSnapshot;
+import dev.openoneblock.core.island.IslandCleanupRetryRequest;
 import dev.openoneblock.core.island.IslandDeletionCompletion;
 import dev.openoneblock.core.island.IslandDeletionConflictException;
 import dev.openoneblock.core.island.IslandDeletionProgress;
@@ -42,6 +43,7 @@ import java.util.function.Supplier;
 /** SQLite implementation of crash-safe owner-authorized island deletion. */
 public final class SqliteIslandDeletionRepository implements IslandDeletionRepository {
   private static final String DELETE_KIND = "ISLAND_DELETE";
+  private static final String CLEANUP_RETRY_KIND = "ISLAND_DELETE_CLEANUP_RETRY";
   private static final String SNAPSHOT_COLUMNS =
       """
       i.island_id, i.owner_player_id, i.lifecycle_state, i.current_border_size,
@@ -100,6 +102,14 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
 
   /** {@inheritDoc} */
   @Override
+  public CompletionStage<IslandDeletionProgress> beginCleanupRetry(
+      IslandCleanupRetryRequest request) {
+    Objects.requireNonNull(request, "request");
+    return supplyAsync(() -> retryAndPublish(request));
+  }
+
+  /** {@inheritDoc} */
+  @Override
   public CompletionStage<IslandDeletionProgress> completeDeletion(
       IslandDeletionCompletion completion) {
     Objects.requireNonNull(completion, "completion");
@@ -112,6 +122,12 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
     return supplyAsync(this::findPending);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public CompletionStage<List<IslandCleanupRetryRequest>> findPendingCleanupRetries() {
+    return supplyAsync(this::findPendingRetries);
+  }
+
   private IslandDeletionProgress beginAndPublish(IslandDeletionRequest request) {
     try {
       BeginOutcome outcome = transactions.execute(connection -> begin(connection, request));
@@ -122,6 +138,20 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
       return outcome.progress();
     } catch (SQLException exception) {
       throw new SqlitePersistenceException("Failed to begin SQLite island deletion", exception);
+    }
+  }
+
+  private IslandDeletionProgress retryAndPublish(IslandCleanupRetryRequest request) {
+    try {
+      BeginOutcome outcome = transactions.execute(connection -> beginRetry(connection, request));
+      if (outcome.publishEntry() != null) {
+        publishSlot(outcome.progress().island().primarySlot().orElseThrow());
+      }
+      protectionPublisher.publishCommitted(outcome.progress().island().islandId());
+      return outcome.progress();
+    } catch (SQLException exception) {
+      throw new SqlitePersistenceException(
+          "Failed to begin SQLite deletion cleanup retry", exception);
     }
   }
 
@@ -188,12 +218,51 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
         locatorEntry(deleting.primarySlot().orElseThrow()));
   }
 
+  private static BeginOutcome beginRetry(Connection connection, IslandCleanupRetryRequest request)
+      throws SQLException {
+    Optional<OperationRow> existing = findOperation(connection, request.operationId());
+    if (existing.isPresent()) {
+      OperationRow operation = existing.orElseThrow();
+      if (!operation.kind().equals(CLEANUP_RETRY_KIND)
+          || !operation.islandId().equals(request.islandId())
+          || !Objects.equals(operation.fingerprint(), request.fingerprint())) {
+        throw new IslandDeletionConflictException(
+            "Operation ID already belongs to a different cleanup retry intent");
+      }
+      return new BeginOutcome(progressForOperation(connection, operation, true), null);
+    }
+
+    IslandAggregateSnapshot current =
+        findSnapshot(connection, request.islandId())
+            .orElseThrow(() -> new IslandDeletionConflictException("Unknown island"));
+    AllocatedSlot slot = current.primarySlot().orElseThrow();
+    if (current.lifecycleState() != IslandLifecycleState.BROKEN
+        || slot.state() != SlotState.QUARANTINED
+        || !hasLifecycleLockReason(
+            connection, request.islandId(), "openoneblock:delete-cleanup-failed")) {
+      throw new IslandDeletionConflictException(
+          "Cleanup retry requires a failed deletion BROKEN/QUARANTINED state");
+    }
+    if (current.version() != request.expectedIslandVersion()
+        || slot.version() != request.expectedSlotVersion()) {
+      throw new IslandDeletionConflictException("Cleanup retry confirmation versions are stale");
+    }
+    insertRetryOperation(connection, request, slot.slotId());
+    insertRetryContext(connection, request);
+    updateIslandToRetryCleaning(connection, request);
+    updateSlotToRetryCleaning(connection, request, slot);
+    IslandAggregateSnapshot cleaning = findSnapshot(connection, request.islandId()).orElseThrow();
+    return new BeginOutcome(
+        new IslandDeletionProgress(cleaning, IslandDeletionProgress.Status.CLEANING, false, ""),
+        locatorEntry(cleaning.primarySlot().orElseThrow()));
+  }
+
   private static CompleteOutcome complete(
       Connection connection, IslandDeletionCompletion completion) throws SQLException {
     OperationRow operation =
         findOperation(connection, completion.operationId())
             .orElseThrow(() -> new IslandDeletionConflictException("Unknown deletion operation"));
-    if (!operation.kind().equals(DELETE_KIND)
+    if ((!operation.kind().equals(DELETE_KIND) && !operation.kind().equals(CLEANUP_RETRY_KIND))
         || !operation.islandId().equals(completion.islandId())) {
       throw new IslandDeletionConflictException("Operation is not this island deletion");
     }
@@ -237,10 +306,7 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
             findSnapshot(connection, completion.islandId()).orElseThrow();
         return new CompleteOutcome(
             new IslandDeletionProgress(
-                broken,
-                IslandDeletionProgress.Status.AMBIGUOUS,
-                false,
-                unsafe.diagnostic()),
+                broken, IslandDeletionProgress.Status.AMBIGUOUS, false, unsafe.diagnostic()),
             null,
             locatorEntry(broken.primarySlot().orElseThrow()));
       }
@@ -283,6 +349,15 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
     }
   }
 
+  private List<IslandCleanupRetryRequest> findPendingRetries() {
+    try {
+      return transactions.execute(SqliteIslandDeletionRepository::findPendingRetriesInTransaction);
+    } catch (SQLException exception) {
+      throw new SqlitePersistenceException(
+          "Failed to query pending deletion cleanup retries", exception);
+    }
+  }
+
   private static List<IslandDeletionRequest> findPendingInTransaction(Connection connection)
       throws SQLException {
     try (PreparedStatement statement =
@@ -318,6 +393,136 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
       }
     } catch (IllegalArgumentException exception) {
       throw new SQLException("Invalid persisted deletion recovery context", exception);
+    }
+  }
+
+  private static List<IslandCleanupRetryRequest> findPendingRetriesInTransaction(
+      Connection connection) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT c.operation_id, o.island_id, c.requested_by_player_id,
+                   c.expected_island_version, c.expected_slot_version,
+                   c.minimum_y, c.maximum_y_exclusive, c.requested_at
+            FROM island_cleanup_retry_contexts c
+            JOIN operations o ON o.operation_id = c.operation_id
+            JOIN islands i ON i.island_id = o.island_id
+            JOIN slots s ON s.slot_id = i.primary_slot_id
+            WHERE o.kind = 'ISLAND_DELETE_CLEANUP_RETRY'
+              AND o.state = 'CLEANING_WORLD' AND o.outcome_state IS NULL
+              AND i.lifecycle_state = 'DELETING' AND s.state = 'CLEANING'
+            ORDER BY c.requested_at, c.operation_id
+            """)) {
+      try (ResultSet result = statement.executeQuery()) {
+        List<IslandCleanupRetryRequest> requests = new ArrayList<>();
+        while (result.next()) {
+          requests.add(
+              new IslandCleanupRetryRequest(
+                  IslandId.parse(result.getString("island_id")),
+                  OperationId.parse(result.getString("operation_id")),
+                  PlayerId.parse(result.getString("requested_by_player_id")),
+                  result.getLong("expected_island_version"),
+                  result.getLong("expected_slot_version"),
+                  result.getInt("minimum_y"),
+                  result.getInt("maximum_y_exclusive"),
+                  Instant.parse(result.getString("requested_at"))));
+        }
+        return List.copyOf(requests);
+      }
+    } catch (IllegalArgumentException exception) {
+      throw new SQLException("Invalid persisted cleanup retry context", exception);
+    }
+  }
+
+  private static void insertRetryOperation(
+      Connection connection, IslandCleanupRetryRequest request, SlotId slotId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO operations (
+                operation_id, island_id, kind, state, slot_id, request_fingerprint,
+                outcome_state, outcome_payload, completed_at, created_at, updated_at
+            ) VALUES (?, ?, 'ISLAND_DELETE_CLEANUP_RETRY', 'CLEANING_WORLD', ?, ?,
+                      NULL, NULL, NULL, ?, ?)
+            """)) {
+      statement.setString(1, request.operationId().toString());
+      statement.setString(2, request.islandId().toString());
+      statement.setString(3, slotId.toString());
+      statement.setString(4, request.fingerprint());
+      statement.setString(5, request.requestedAt().toString());
+      statement.setString(6, request.requestedAt().toString());
+      statement.executeUpdate();
+    }
+  }
+
+  private static void insertRetryContext(Connection connection, IslandCleanupRetryRequest request)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            INSERT INTO island_cleanup_retry_contexts (
+                operation_id, requested_by_player_id, expected_island_version,
+                expected_slot_version, minimum_y, maximum_y_exclusive, requested_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """)) {
+      statement.setString(1, request.operationId().toString());
+      statement.setString(2, request.requestedBy().toString());
+      statement.setLong(3, request.expectedIslandVersion());
+      statement.setLong(4, request.expectedSlotVersion());
+      statement.setInt(5, request.minimumY());
+      statement.setInt(6, request.maximumYExclusive());
+      statement.setString(7, request.requestedAt().toString());
+      statement.executeUpdate();
+    }
+  }
+
+  private static void updateIslandToRetryCleaning(
+      Connection connection, IslandCleanupRetryRequest request) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            UPDATE islands
+            SET lifecycle_state = 'DELETING', pending_operation_id = ?,
+                lifecycle_lock_reason = 'openoneblock:delete-cleanup-retry',
+                version = version + 1, updated_at = ?
+            WHERE island_id = ? AND lifecycle_state = 'BROKEN' AND version = ?
+              AND pending_operation_id IS NULL
+              AND lifecycle_lock_reason = 'openoneblock:delete-cleanup-failed'
+            """)) {
+      statement.setString(1, request.operationId().toString());
+      statement.setString(2, request.requestedAt().toString());
+      statement.setString(3, request.islandId().toString());
+      statement.setLong(4, request.expectedIslandVersion());
+      requireOne(statement, "Island changed before cleanup retry commit");
+    }
+  }
+
+  private static void updateSlotToRetryCleaning(
+      Connection connection, IslandCleanupRetryRequest request, AllocatedSlot slot)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            UPDATE slots SET state = 'CLEANING', version = version + 1, updated_at = ?
+            WHERE slot_id = ? AND state = 'QUARANTINED' AND owner_island_id = ? AND version = ?
+            """)) {
+      statement.setString(1, request.requestedAt().toString());
+      statement.setString(2, slot.slotId().toString());
+      statement.setString(3, request.islandId().toString());
+      statement.setLong(4, request.expectedSlotVersion());
+      requireOne(statement, "Slot changed before cleanup retry commit");
+    }
+  }
+
+  private static boolean hasLifecycleLockReason(
+      Connection connection, IslandId islandId, String expected) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT lifecycle_lock_reason FROM islands WHERE island_id = ?")) {
+      statement.setString(1, islandId.toString());
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() && Objects.equals(expected, result.getString(1));
+      }
     }
   }
 
@@ -564,7 +769,8 @@ public final class SqliteIslandDeletionRepository implements IslandDeletionRepos
             SET state = 'COMPLETED', outcome_state = ?, outcome_payload = ?,
                 completed_at = ?, updated_at = ?,
                 slot_id = CASE WHEN ? = 'SUCCEEDED' THEN NULL ELSE slot_id END
-            WHERE operation_id = ? AND island_id = ? AND kind = 'ISLAND_DELETE'
+            WHERE operation_id = ? AND island_id = ?
+              AND kind IN ('ISLAND_DELETE', 'ISLAND_DELETE_CLEANUP_RETRY')
               AND state = 'CLEANING_WORLD' AND outcome_state IS NULL
             """)) {
       statement.setString(1, outcome);

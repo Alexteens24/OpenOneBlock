@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 253 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 255 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -619,7 +619,9 @@ Goal: safely release or rebuild cells without ever exposing residue to another i
 
 - [x] Cleanup timeout/failure transitions slot to `QUARANTINED`.
 - [x] Quarantined slots are excluded from allocation.
-- [ ] Add explicit cleanup retry operation.
+- [x] Add an exact-version, SHA-256-idempotent deletion cleanup retry operation for
+  `BROKEN/QUARANTINED` failed deletions; retry re-cleans every dimension and archives/releases only
+  after fresh verification.
 - [x] Prevent direct `QUARANTINED -> FREE`.
 - [ ] Repair enters `LOCKED`, never directly `ACTIVE`.
 
@@ -645,11 +647,14 @@ Goal: startup can deterministically resume, rollback, clean, or require manual r
   - retry/ambiguity classification;
   - error code and diagnostic context.
 - [ ] Add normalized operation-effect receipts.
-- [ ] Add startup scanner for every non-terminal operation.
-- [~] Recovery handlers for create, reset, and delete are active; migration, repair, and critical
+- [~] Add startup scanners for every implemented non-terminal operation: create, reset, delete, and
+  deletion cleanup retry are active; migration, generic repair, scheduled actions, and critical
   rewards remain.
+- [~] Recovery handlers for create, reset, delete, and deletion cleanup retry are active; migration,
+  generic repair, scheduled actions, and critical rewards remain.
 - [ ] Add bounded recovery concurrency across islands while preserving one lane per island.
-- [ ] Mark unprovable state `BROKEN` instead of guessing.
+- [~] Mark unprovable create/reset/delete/cleanup-retry state `BROKEN` with slot quarantine instead
+  of guessing; future operation kinds must implement the same policy.
 - [ ] Persist recovery audit entries.
 - [ ] Add admin operation list/show/retry/abort commands.
 
@@ -1094,12 +1099,14 @@ Migration numbering must remain append-only and checksummed.
 - [x] V7: normalized counters and typed variables.
 - [~] V8: lifecycle operation recovery contexts, phase history, upgrade storage, crash-safe delete,
   and crash-safe reset are active; broader progression/upgrades services remain.
-- [ ] V9: rule execution policies and cooldown state.
-- [ ] V10: durable scheduled actions.
-- [ ] V11: audit logs and retention metadata.
-- [ ] V12: structure/paste/cleanup operation receipts.
-- [ ] Later migrations: team invites/access records, backup references, season state, and backend
-  compatibility metadata.
+- [x] V9: team invitations and mutually exclusive trusted/banned access records.
+- [x] V10: idempotent team mutation receipts.
+- [x] V11: recoverable quarantined deletion-cleanup retry contexts.
+- [ ] V12: rule execution policies and cooldown state.
+- [ ] V13: durable scheduled actions.
+- [ ] V14: audit logs and retention metadata.
+- [ ] V15: structure/paste/cleanup operation receipts.
+- [ ] Later migrations: backup references, season state, and backend compatibility metadata.
 
 # Test and verification strategy
 
@@ -1135,7 +1142,9 @@ Migration numbering must remain append-only and checksummed.
   `islands.yml` and `roles.yml` from schema V1 to V2 with verified adjacent backups, restored newly
   required built-in roles without overwriting existing role permissions, migrated SQLite through
   team schema V10, rebuilt the team/protection service graph, and reached the same `READY` state on
-  Paper 1.21.11/Java 21 before a bounded shutdown.
+  Paper 1.21.11/Java 21 before a bounded shutdown. The deletion-recovery artifact then upgraded that
+  same database through V11, registered the cleanup-retry recovery scan, reached `READY`, and shut
+  down cleanly through the live console.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

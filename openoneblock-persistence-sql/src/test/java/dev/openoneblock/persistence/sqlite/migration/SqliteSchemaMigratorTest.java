@@ -26,7 +26,7 @@ class SqliteSchemaMigratorTest {
     migrator.migrate();
     migrator.migrate();
 
-    assertEquals(10, migrator.currentVersion());
+    assertEquals(11, migrator.currentVersion());
     try (Connection connection = factory.open();
         Statement statement = connection.createStatement()) {
       try (ResultSet result = statement.executeQuery("PRAGMA journal_mode")) {
@@ -48,10 +48,11 @@ class SqliteSchemaMigratorTest {
                     'island_lifecycle_operation_contexts', 'island_upgrades',
                     'island_phase_history', 'island_invitations', 'island_access_records',
                     'team_mutation_receipts'
+                    , 'island_cleanup_retry_contexts'
                 )
               """)) {
         assertTrue(result.next());
-        assertEquals(21, result.getInt(1));
+        assertEquals(22, result.getInt(1));
       }
     }
   }
@@ -68,7 +69,7 @@ class SqliteSchemaMigratorTest {
     }
 
     assertThrows(SqlitePersistenceException.class, migrator::migrate);
-    assertEquals(10, migrator.currentVersion());
+    assertEquals(11, migrator.currentVersion());
   }
 
   @Test

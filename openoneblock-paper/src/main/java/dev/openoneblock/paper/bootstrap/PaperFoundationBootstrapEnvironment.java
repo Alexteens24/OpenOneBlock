@@ -20,17 +20,20 @@ import dev.openoneblock.core.locator.WorldProjectionVerification;
 import dev.openoneblock.core.platform.PlatformTaskScheduler;
 import dev.openoneblock.core.runtime.IslandRuntimeManager;
 import dev.openoneblock.core.team.IslandRoleRegistry;
+import dev.openoneblock.core.team.IslandTeamPolicy;
+import dev.openoneblock.core.team.IslandTeamService;
 import dev.openoneblock.core.world.IslandCellCleanupCoordinator;
 import dev.openoneblock.core.world.WorldPreparationCoordinator;
+import dev.openoneblock.paper.config.BuiltInConfigurationMigrations;
 import dev.openoneblock.paper.config.DefaultConfigurationInstaller;
 import dev.openoneblock.paper.config.FoundationConfigurationLoader;
 import dev.openoneblock.paper.config.FoundationConfigurationSnapshot;
-import dev.openoneblock.paper.config.BuiltInConfigurationMigrations;
 import dev.openoneblock.paper.config.ProtectionConfigurationCompiler;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator;
 import dev.openoneblock.paper.config.ProvisionedWorldHeightValidator.ProvisionedWorldHeight;
 import dev.openoneblock.paper.config.WorldGeometryFingerprint;
 import dev.openoneblock.paper.event.BukkitIslandCreatedEventPublisher;
+import dev.openoneblock.paper.event.BukkitIslandMembershipEventPublisher;
 import dev.openoneblock.paper.island.PaperIslandDestinationPreparer;
 import dev.openoneblock.paper.island.PaperIslandOwnerTeleporter;
 import dev.openoneblock.paper.runtime.PaperIslandChunkTicketController;
@@ -50,12 +53,9 @@ import dev.openoneblock.persistence.sqlite.migration.SqliteSchemaMigrator;
 import dev.openoneblock.persistence.sqlite.protection.SqliteCommittedIslandProtectionPublisher;
 import dev.openoneblock.persistence.sqlite.protection.SqliteIslandProtectionSnapshotSource;
 import dev.openoneblock.persistence.sqlite.slot.SqliteSlotLocatorSnapshotSource;
-import dev.openoneblock.persistence.sqlite.team.SqliteIslandMemberRepository;
 import dev.openoneblock.persistence.sqlite.team.SqliteIslandInvitationRepository;
+import dev.openoneblock.persistence.sqlite.team.SqliteIslandMemberRepository;
 import dev.openoneblock.persistence.sqlite.team.SqliteIslandTeamRepository;
-import dev.openoneblock.core.team.IslandTeamService;
-import dev.openoneblock.core.team.IslandTeamPolicy;
-import dev.openoneblock.paper.event.BukkitIslandMembershipEventPublisher;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldProjectionCatalog;
 import dev.openoneblock.protection.InMemoryIslandProtectionIndex;
@@ -246,10 +246,7 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   new SqliteIslandInvitationRepository(activeFactory, activeExecutors.database());
               SqliteIslandTeamRepository teamRepository =
                   new SqliteIslandTeamRepository(
-                      activeFactory,
-                      islandRoles,
-                      protectionPublisher,
-                      activeExecutors.database());
+                      activeFactory, islandRoles, protectionPublisher, activeExecutors.database());
               IslandTeamService teamService =
                   new IslandTeamService(
                       teamRepository,
@@ -356,6 +353,13 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                   .thenCompose(
                       pending ->
                           sequence(pending.stream().map(deletionService::recoverPending).toList()))
+                  .thenCompose(ignored -> deletionRepository.findPendingCleanupRetries())
+                  .thenCompose(
+                      pending ->
+                          sequence(
+                              pending.stream()
+                                  .map(deletionService::recoverPendingCleanupRetry)
+                                  .toList()))
                   .thenCompose(ignored -> protectionSource.loadCommittedSnapshots())
                   .thenApply(
                       snapshots -> {

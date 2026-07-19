@@ -14,6 +14,14 @@ public interface IslandDeletionRepository {
   CompletionStage<IslandDeletionProgress> beginDeletion(IslandDeletionRequest request);
 
   /**
+   * Begins or exactly replays an administrative retry of failed deletion cleanup.
+   *
+   * @param request durable cleanup retry intent
+   * @return cleaning or terminal replay progress
+   */
+  CompletionStage<IslandDeletionProgress> beginCleanupRetry(IslandCleanupRetryRequest request);
+
+  /**
    * Commits verified release or mandatory quarantine from explicit cleanup evidence.
    *
    * @param completion cleanup evidence and optimistic versions
@@ -27,4 +35,11 @@ public interface IslandDeletionRepository {
    * @return deterministic immutable pending requests
    */
   CompletionStage<List<IslandDeletionRequest>> findPendingDeletions();
+
+  /**
+   * Returns durable cleanup retries still awaiting world verification.
+   *
+   * @return deterministic immutable pending requests
+   */
+  CompletionStage<List<IslandCleanupRetryRequest>> findPendingCleanupRetries();
 }

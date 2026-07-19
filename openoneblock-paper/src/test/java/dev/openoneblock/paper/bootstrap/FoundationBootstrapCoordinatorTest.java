@@ -260,6 +260,18 @@ class FoundationBootstrapCoordinatorTest {
               findPendingDeletions() {
             return CompletableFuture.completedFuture(List.of());
           }
+
+          @Override
+          public CompletionStage<dev.openoneblock.core.island.IslandDeletionProgress>
+              beginCleanupRetry(dev.openoneblock.core.island.IslandCleanupRetryRequest request) {
+            return CompletableFuture.failedFuture(new AssertionError("unexpected cleanup retry"));
+          }
+
+          @Override
+          public CompletionStage<List<dev.openoneblock.core.island.IslandCleanupRetryRequest>>
+              findPendingCleanupRetries() {
+            return CompletableFuture.completedFuture(List.of());
+          }
         };
     dev.openoneblock.core.island.DeleteIslandService deletion =
         new dev.openoneblock.core.island.DeleteIslandService(

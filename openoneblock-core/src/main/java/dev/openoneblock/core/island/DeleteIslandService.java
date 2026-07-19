@@ -82,6 +82,48 @@ public final class DeleteIslandService {
   }
 
   /**
+   * Submits an exact-version retry for a quarantined failed deletion cleanup.
+   *
+   * @param request durable administrative retry intent
+   * @return verified archived result
+   */
+  public CompletionStage<IslandDeletionResult> retryCleanup(IslandCleanupRetryRequest request) {
+    Objects.requireNonNull(request, "request");
+    IslandOperationRequest laneRequest =
+        new IslandOperationRequest(
+            request.islandId(),
+            request.operationId(),
+            request.expectedIslandVersion(),
+            request.requestedAt(),
+            IslandOperationClass.LOCKING);
+    LaneSubmission<IslandDeletionResult> submission =
+        lanes.submit(laneRequest, () -> retryInLane(request));
+    return switch (submission) {
+      case LaneSubmission.Accepted<IslandDeletionResult> accepted -> accepted.completion();
+      case LaneSubmission.Rejected<IslandDeletionResult> rejected ->
+          CompletableFuture.failedFuture(new CreateIslandRejectedException(rejected.reason()));
+    };
+  }
+
+  /**
+   * Resumes one durable cleanup retry during startup recovery.
+   *
+   * @param request persisted retry intent
+   * @return completion after release or quarantine
+   */
+  public CompletionStage<Void> recoverPendingCleanupRetry(IslandCleanupRetryRequest request) {
+    return retryCleanup(request)
+        .handle(
+            (ignored, failure) -> {
+              Throwable cause = unwrap(failure);
+              if (cause == null || cause instanceof IslandDeletionFailedException) {
+                return null;
+              }
+              throw new CompletionException(cause);
+            });
+  }
+
+  /**
    * Resumes one durable pending deletion and treats a committed safe failure as recovered.
    *
    * @param request persisted deletion intent
@@ -111,12 +153,28 @@ public final class DeleteIslandService {
               if (progress.status() != IslandDeletionProgress.Status.CLEANING) {
                 return CompletableFuture.failedFuture(new IslandDeletionFailedException(progress));
               }
-              return cleanupAllDimensions(request, progress);
+              return cleanupAllDimensions(CleanupIntent.from(request), progress);
+            });
+  }
+
+  private CompletionStage<IslandDeletionResult> retryInLane(IslandCleanupRetryRequest request) {
+    return repository
+        .beginCleanupRetry(request)
+        .thenCompose(
+            progress -> {
+              if (progress.status() == IslandDeletionProgress.Status.SUCCEEDED) {
+                return CompletableFuture.completedFuture(
+                    new IslandDeletionResult(request.islandId(), request.operationId(), true));
+              }
+              if (progress.status() != IslandDeletionProgress.Status.CLEANING) {
+                return CompletableFuture.failedFuture(new IslandDeletionFailedException(progress));
+              }
+              return cleanupAllDimensions(CleanupIntent.from(request), progress);
             });
   }
 
   private CompletionStage<IslandDeletionResult> cleanupAllDimensions(
-      IslandDeletionRequest request, IslandDeletionProgress progress) {
+      CleanupIntent request, IslandDeletionProgress progress) {
     var slot = progress.island().primarySlot().orElseThrow();
     GridGeometry geometry = geometryByShard.apply(slot.shardGroupId());
     var projections = worlds.projectionsForShard(slot.shardGroupId());
@@ -140,7 +198,7 @@ public final class DeleteIslandService {
   }
 
   private CompletionStage<CleanupSummary> cleanupProjection(
-      IslandDeletionRequest request,
+      CleanupIntent request,
       IslandDeletionProgress progress,
       GridGeometry geometry,
       WorldProjection projection) {
@@ -208,7 +266,7 @@ public final class DeleteIslandService {
   }
 
   private CompletionStage<IslandDeletionResult> complete(
-      IslandDeletionRequest request, IslandDeletionProgress progress, CleanupSummary summary) {
+      CleanupIntent request, IslandDeletionProgress progress, CleanupSummary summary) {
     var slot = progress.island().primarySlot().orElseThrow();
     IslandDeletionCompletion completion =
         new IslandDeletionCompletion(
@@ -275,6 +333,28 @@ public final class DeleteIslandService {
         return IslandCleanup.Status.VERIFIED_FAILURE;
       }
       return IslandCleanup.Status.VERIFIED_CLEAN;
+    }
+  }
+
+  private record CleanupIntent(
+      dev.openoneblock.api.id.IslandId islandId,
+      dev.openoneblock.api.id.OperationId operationId,
+      int minimumY,
+      int maximumYExclusive) {
+    private static CleanupIntent from(IslandDeletionRequest request) {
+      return new CleanupIntent(
+          request.islandId(),
+          request.operationId(),
+          request.minimumY(),
+          request.maximumYExclusive());
+    }
+
+    private static CleanupIntent from(IslandCleanupRetryRequest request) {
+      return new CleanupIntent(
+          request.islandId(),
+          request.operationId(),
+          request.minimumY(),
+          request.maximumYExclusive());
     }
   }
 }
