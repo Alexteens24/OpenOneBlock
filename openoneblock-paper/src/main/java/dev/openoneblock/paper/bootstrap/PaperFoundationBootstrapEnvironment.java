@@ -52,6 +52,7 @@ import dev.openoneblock.persistence.sqlite.world.SqliteWorldEffectJournal;
 import dev.openoneblock.persistence.sqlite.world.SqliteWorldProjectionCatalog;
 import dev.openoneblock.protection.InMemoryIslandProtectionIndex;
 import dev.openoneblock.protection.ProtectionEngine;
+import dev.openoneblock.protection.ProtectionPolicyRegistry;
 import dev.openoneblock.protection.RolePermissionRegistry;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -184,7 +185,8 @@ public final class PaperFoundationBootstrapEnvironment implements FoundationBoot
                       geometryByShard,
                       protectionIndex,
                       rolePermissions,
-                      List.of());
+                      new ProtectionPolicyRegistry(64),
+                      Clock.systemUTC());
               SqliteIslandProtectionSnapshotSource protectionSource =
                   new SqliteIslandProtectionSnapshotSource(
                       activeFactory, activeExecutors.database());

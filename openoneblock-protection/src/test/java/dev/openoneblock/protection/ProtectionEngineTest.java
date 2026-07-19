@@ -93,6 +93,37 @@ class ProtectionEngineTest {
   }
 
   @Test
+  void oddBorderUsesTheSameExactHalfOpenGeometry() {
+    Fixture fixture = fixture(IslandLifecycleState.ACTIVE, SlotState.ACTIVE, List.of());
+    IslandProtectionSnapshot current = fixture.index().find(fixture.islandId()).orElseThrow();
+    fixture
+        .index()
+        .publish(
+            new IslandProtectionSnapshot(
+                current.islandId(),
+                current.lifecycleState(),
+                current.shardGroupId(),
+                current.gridPosition(),
+                63,
+                current.islandVersion() + 1,
+                current.activeMemberships(),
+                current.magicBlocks()));
+
+    assertEquals(
+        ProtectionOutcome.ALLOW,
+        fixture
+            .engine()
+            .evaluate(queryAt(OWNER_PLAYER, ProtectionAction.BLOCK_BREAK, WORLD, 31, 0, 0))
+            .outcome());
+    assertDecision(
+        ProtectionOutcome.DENY,
+        "outside-current-border",
+        fixture
+            .engine()
+            .evaluate(queryAt(OWNER_PLAYER, ProtectionAction.BLOCK_BREAK, WORLD, -32, 0, 0)));
+  }
+
+  @Test
   void nonActiveIslandOrSlotCannotReceiveGameplayMutation() {
     Fixture preparing = fixture(IslandLifecycleState.ACTIVE, SlotState.PREPARING, List.of());
 
@@ -142,17 +173,44 @@ class ProtectionEngineTest {
   @Test
   void sourceAndDestinationMustStayInsideTheSameIsland() {
     Fixture fixture = twoIslandFixture();
-    ProtectionQuery query =
-        new ProtectionQuery(
-            ProtectionActor.environment(),
+    for (ProtectionAction action :
+        List.of(
             ProtectionAction.PISTON_MOVE,
-            Optional.of(position(WORLD, 31, 64, 0)),
-            Optional.of(position(WORLD, 512, 64, 0)),
-            NamespacedId.of("minecraft", "piston"),
-            Map.of());
+            ProtectionAction.FLUID_FLOW,
+            ProtectionAction.EXPLOSION_DAMAGE)) {
+      ProtectionQuery query =
+          new ProtectionQuery(
+              ProtectionActor.environment(),
+              action,
+              Optional.of(position(WORLD, 31, 64, 0)),
+              Optional.of(position(WORLD, 512, 64, 0)),
+              NamespacedId.of("minecraft", "mechanical"),
+              Map.of());
+
+      assertDecision(
+          ProtectionOutcome.DENY, "cross-island-operation", fixture.engine().evaluate(query));
+    }
+  }
+
+  @Test
+  void conflictedLocatorCellFailsClosedBeforeIslandProjection() {
+    GridPosition grid = new GridPosition(0, 0);
+    IslandId first = IslandId.generate();
+    IslandId second = IslandId.generate();
+    InMemorySlotLocatorIndex slots =
+        InMemorySlotLocatorIndex.rebuild(
+            List.of(entry(first, grid, SlotState.ACTIVE), entry(second, grid, SlotState.ACTIVE)));
+    InMemoryIslandProtectionIndex index =
+        InMemoryIslandProtectionIndex.rebuild(
+            List.of(
+                snapshot(first, IslandLifecycleState.ACTIVE, 2, grid),
+                snapshot(second, IslandLifecycleState.ACTIVE, 2, grid)));
 
     assertDecision(
-        ProtectionOutcome.DENY, "cross-island-operation", fixture.engine().evaluate(query));
+        ProtectionOutcome.DENY,
+        "slot-ownership-conflict",
+        engine(slots, index, List.of())
+            .evaluate(queryAt(OWNER_PLAYER, ProtectionAction.BLOCK_BREAK, WORLD, 0, 64, 0)));
   }
 
   @Test

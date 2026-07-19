@@ -15,18 +15,8 @@ import org.junit.jupiter.api.Test;
 class PaperProtectionListenerArchitectureTest {
   @Test
   void listenerDependsOnlyOnEngineSupplierAndQueryFactory() {
-    Set<String> fieldTypes =
-        Arrays.stream(PaperProtectionListener.class.getDeclaredFields())
-            .filter(field -> !Modifier.isStatic(field.getModifiers()))
-            .map(Field::getType)
-            .map(Class::getName)
-            .collect(Collectors.toSet());
-
-    assertEquals(
-        Set.of("java.util.function.Supplier", BukkitProtectionQueryFactory.class.getName()),
-        fieldTypes);
-    assertFalse(fieldTypes.stream().anyMatch(type -> type.contains("persistence")));
-    assertFalse(fieldTypes.stream().anyMatch(type -> type.contains("runtime")));
+    assertThinDependencies(PaperProtectionListener.class);
+    assertThinDependencies(PaperMechanicalProtectionListener.class);
   }
 
   @Test
@@ -40,5 +30,32 @@ class PaperProtectionListenerArchitectureTest {
             .count();
 
     assertEquals(14, adapterCount);
+  }
+
+  @Test
+  void everyMechanicalAdapterIsDeclaredAsAnEventHandler() {
+    long adapterCount =
+        Arrays.stream(PaperMechanicalProtectionListener.class.getDeclaredMethods())
+            .filter(method -> method.getName().startsWith("on"))
+            .peek(
+                method ->
+                    assertTrue(method.isAnnotationPresent(EventHandler.class), method.getName()))
+            .count();
+
+    assertEquals(28, adapterCount);
+  }
+
+  private static void assertThinDependencies(Class<?> listenerType) {
+    Set<String> fieldTypes =
+        Arrays.stream(listenerType.getDeclaredFields())
+            .filter(field -> !Modifier.isStatic(field.getModifiers()))
+            .map(Field::getType)
+            .map(Class::getName)
+            .collect(Collectors.toSet());
+    assertEquals(
+        Set.of("java.util.function.Supplier", BukkitProtectionQueryFactory.class.getName()),
+        fieldTypes);
+    assertFalse(fieldTypes.stream().anyMatch(type -> type.contains("persistence")));
+    assertFalse(fieldTypes.stream().anyMatch(type -> type.contains("runtime")));
   }
 }

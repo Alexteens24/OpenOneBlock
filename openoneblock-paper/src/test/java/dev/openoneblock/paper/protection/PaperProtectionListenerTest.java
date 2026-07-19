@@ -26,8 +26,12 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.junit.jupiter.api.Test;
 
 class PaperProtectionListenerTest {
@@ -47,6 +51,24 @@ class PaperProtectionListenerTest {
 
     listener.onBlockBreak(managed);
     listener.onBlockBreak(unmanaged);
+
+    assertTrue(managed.isCancelled());
+    assertFalse(unmanaged.isCancelled());
+  }
+
+  @Test
+  void mechanicalListenerAlsoCancelsManagedMutationAndPassesUnmanagedMutation() {
+    PaperMechanicalProtectionListener listener =
+        new PaperMechanicalProtectionListener(
+            () -> java.util.Optional.of(engine()),
+            new BukkitProtectionQueryFactory("openoneblock.admin.bypass"));
+    EntityChangeBlockEvent managed =
+        new EntityChangeBlockEvent(entity(MANAGED_WORLD), block(MANAGED_WORLD), blockData());
+    EntityChangeBlockEvent unmanaged =
+        new EntityChangeBlockEvent(entity(UNMANAGED_WORLD), block(UNMANAGED_WORLD), blockData());
+
+    listener.onEntityChangeBlock(managed);
+    listener.onEntityChangeBlock(unmanaged);
 
     assertTrue(managed.isCancelled());
     assertFalse(unmanaged.isCancelled());
@@ -95,6 +117,29 @@ class PaperProtectionListenerTest {
             World.class.getClassLoader(),
             new Class<?>[] {World.class},
             (proxy, method, arguments) -> method.getName().equals("getUID") ? worldId : null);
+  }
+
+  private static Entity entity(UUID worldId) {
+    World world = world(worldId);
+    return (Entity)
+        Proxy.newProxyInstance(
+            Entity.class.getClassLoader(),
+            new Class<?>[] {Entity.class},
+            (proxy, method, arguments) ->
+                switch (method.getName()) {
+                  case "getLocation" -> new Location(world, 0, 64, 0);
+                  case "getType" -> EntityType.ZOMBIE;
+                  default -> null;
+                });
+  }
+
+  private static BlockData blockData() {
+    return (BlockData)
+        Proxy.newProxyInstance(
+            BlockData.class.getClassLoader(),
+            new Class<?>[] {BlockData.class},
+            (proxy, method, arguments) ->
+                method.getName().equals("getMaterial") ? Material.AIR : null);
   }
 
   private static Player player() {

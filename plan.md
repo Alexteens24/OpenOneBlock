@@ -44,7 +44,7 @@ Every milestone must preserve these rules:
 
 ## Current implementation snapshot
 
-The repository is a Gradle multi-module project and currently passes 232 automated tests. It produces
+The repository is a Gradle multi-module project and currently passes 239 automated tests. It produces
 an installable Paper foundation JAR, reaches `READY` only after verified recovery, registers its
 minimal `/oneblock` command surface, publishes a native in-memory protection engine, and registers
 the first fail-closed Paper gameplay listener slice only after recovery reaches `READY`.
@@ -498,12 +498,12 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
   - cause;
   - context snapshot.
 - [x] Add `ALLOW`, `DENY`, and `PASS` decisions with namespaced reason IDs.
-- [~] Add protection policy registry and deterministic priority: immutable deterministic policy
-  chains exist; namespaced registration and explicit priorities remain.
+- [x] Add bounded copy-on-write protection policy registry with namespaced identity, deterministic
+  priority, and stable ID tie-breaking.
 - [x] Add current-border geometry to runtime island snapshot.
 - [x] Add admin bypass as an explicit final policy, not scattered checks.
-- [~] Add temporary script policies with bounded lifetime: policies can deny through the immutable
-  chain; expiry/ownership indexing remains.
+- [x] Add temporary script policies with bounded lifetime and lazy clock-based expiry, without one
+  cleanup task per policy or island.
 
 ### Required evaluation order
 
@@ -524,19 +524,17 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
 - [x] Bucket fill/empty.
 - [x] Container and redstone interaction.
 - [x] Armor stands, item frames, vehicles, and entity interaction through the generic entity adapter.
-- [~] Entity damage and mob griefing: direct player and player-projectile damage is protected; mob
-  griefing block adapters remain.
-- [~] Ender pearl, chorus fruit, portals, and teleport destinations: every player teleport
-  destination is protected; portal creation remains.
+- [x] Entity damage and mob griefing, including player/projectile damage and entity block changes.
+- [x] Ender pearl, chorus fruit, portal creation, and player/entity teleport destinations.
 - [x] Pistons with every moved source/destination block.
 - [x] Fluid flow.
 - [x] Explosions and TNT chains.
-- [~] Fire spread and lightning: fire block spread is protected; ignite/burn/lightning remain.
-- [ ] Falling blocks and entity block changes.
-- [ ] Growth, fade, form, spread, and physics events.
-- [ ] Hoppers, dispensers, projectiles, fishing hooks, and vehicles.
-- [~] Cross-island transfer denial for all source/destination mechanics: enforced for the adapters
-  above; remaining mechanical adapters are pending.
+- [x] Fire spread, ignition, burn, and lightning.
+- [x] Falling blocks and entity block changes.
+- [x] Growth, fade, form, spread, fertilization, sponge absorption, and physics events.
+- [x] Hoppers, inventory pickup, dispensers, projectiles, fishing hooks, hanging entities, and
+  vehicles.
+- [x] Cross-island transfer denial for all implemented source/destination mechanics.
 
 ### Acceptance tests
 
@@ -545,9 +543,9 @@ Goal: protect every shared-world interaction without WorldGuard and without SQL 
   accepts only an engine supplier and immutable query factory, enforced by an architecture test.
 - [x] Every resolvable non-`ACTIVE` lifecycle state denies gameplay mutation; archived islands have
   no locator ownership.
-- [ ] Current-border boundaries are exact for odd and even sizes.
-- [ ] Piston/fluid/explosion tests cover neighboring cells and safety gaps.
-- [ ] Conflicted locator cells fail closed.
+- [x] Current-border boundaries are exact for odd and even sizes.
+- [x] Piston/fluid/explosion engine tests cover neighboring cells and safety gaps.
+- [x] Conflicted locator cells fail closed.
 
 ## Milestone 9 — Team, roles, and memberships (`P1`)
 
@@ -1115,7 +1113,8 @@ Migration numbering must remain append-only and checksummed.
   artifact additionally exposed console-safe admin inspect help, deterministic invalid-ID usage, and
   asynchronous not-found diagnostics before a clean shutdown. The native-protection artifact then
   restarted the same V8 database on Paper build 132, reached `READY with ... native protection
-  active`, registered listeners on the global scheduler, and shut down cleanly without plugin errors.
+  active`, registered both listener groups (42 protected event adapters) on the global scheduler, and
+  shut down cleanly without plugin errors.
 - Automate the live Paper test-server smoke test before the public alpha release.
 
 ## Property and stress tests

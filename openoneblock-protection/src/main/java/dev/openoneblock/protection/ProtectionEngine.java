@@ -10,6 +10,7 @@ import dev.openoneblock.core.locator.IslandLocationLookup;
 import dev.openoneblock.core.locator.IslandLocationResolver;
 import dev.openoneblock.core.locator.SlotLocatorEntry;
 import dev.openoneblock.core.slot.SlotState;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -21,7 +22,8 @@ public final class ProtectionEngine {
       geometryByShard;
   private final InMemoryIslandProtectionIndex islands;
   private final RolePermissionRegistry roles;
-  private final List<ProtectionPolicy> policies;
+  private final ProtectionPolicyRegistry policies;
+  private final Clock clock;
 
   /**
    * Creates the immutable protection pipeline.
@@ -39,11 +41,33 @@ public final class ProtectionEngine {
       InMemoryIslandProtectionIndex islands,
       RolePermissionRegistry roles,
       List<ProtectionPolicy> policies) {
+    this(locations, geometryByShard, islands, roles, legacyRegistry(policies), Clock.systemUTC());
+  }
+
+  /**
+   * Creates a pipeline backed by a bounded dynamically registered policy set.
+   *
+   * @param locations constant-time location resolver
+   * @param geometryByShard immutable grid geometry lookup
+   * @param islands hot-path island projection index
+   * @param roles compiled role permissions
+   * @param policies bounded deterministic policy registry
+   * @param clock expiry clock
+   */
+  public ProtectionEngine(
+      IslandLocationResolver locations,
+      java.util.function.Function<dev.openoneblock.api.id.ShardGroupId, GridGeometry>
+          geometryByShard,
+      InMemoryIslandProtectionIndex islands,
+      RolePermissionRegistry roles,
+      ProtectionPolicyRegistry policies,
+      Clock clock) {
     this.locations = Objects.requireNonNull(locations, "locations");
     this.geometryByShard = Objects.requireNonNull(geometryByShard, "geometryByShard");
     this.islands = Objects.requireNonNull(islands, "islands");
     this.roles = Objects.requireNonNull(roles, "roles");
-    this.policies = List.copyOf(policies);
+    this.policies = Objects.requireNonNull(policies, "policies");
+    this.clock = Objects.requireNonNull(clock, "clock");
   }
 
   /**
@@ -137,19 +161,44 @@ public final class ProtectionEngine {
       }
     }
 
-    for (ProtectionPolicy policy : policies) {
-      ProtectionDecision policyDecision =
-          Objects.requireNonNull(policy.evaluate(query, island), "protection policy returned null");
-      if (policyDecision.outcome() == ProtectionOutcome.DENY && !query.actor().administrator()) {
-        return policyDecision;
+    if (policies.size() > 0) {
+      for (RegisteredProtectionPolicy registration : policies.activeAt(clock.instant())) {
+        ProtectionDecision policyDecision =
+            Objects.requireNonNull(
+                registration.policy().evaluate(query, island),
+                "protection policy returned null: " + registration.policyId());
+        if (policyDecision.outcome() == ProtectionOutcome.DENY && !query.actor().administrator()) {
+          return policyDecision;
+        }
       }
     }
     return ProtectionDecision.allow();
   }
 
+  /**
+   * Returns the bounded registry used for explicit native and temporary policy registration.
+   *
+   * @return live copy-on-write policy registry
+   */
+  public ProtectionPolicyRegistry policyRegistry() {
+    return policies;
+  }
+
   private LocatedPosition locate(ProtectionPosition position) {
     return new LocatedPosition(
         position, locations.lookup(position.worldId(), position.blockX(), position.blockZ()));
+  }
+
+  private static ProtectionPolicyRegistry legacyRegistry(List<ProtectionPolicy> policies) {
+    Objects.requireNonNull(policies, "policies");
+    ProtectionPolicyRegistry registry = new ProtectionPolicyRegistry(Math.max(1, policies.size()));
+    for (int index = 0; index < policies.size(); index++) {
+      registry.register(
+          NamespacedId.of("openoneblock", "constructor-policy/" + index),
+          -index,
+          Objects.requireNonNull(policies.get(index), "policy"));
+    }
+    return registry;
   }
 
   private record LocatedPosition(ProtectionPosition position, IslandLocationLookup lookup) {}

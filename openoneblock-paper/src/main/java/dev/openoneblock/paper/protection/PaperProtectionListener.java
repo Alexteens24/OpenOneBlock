@@ -307,24 +307,23 @@ public final class PaperProtectionListener implements Listener {
   }
 
   /**
-   * Protects fire and other block spreading at both source and destination.
+   * Protects every block spread at both source and destination.
    *
    * @param event block spread attempt
    */
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onBlockSpread(BlockSpreadEvent event) {
-    if (event.getSource().getType() != Material.FIRE
-        && event.getSource().getType() != Material.SOUL_FIRE) {
-      return;
-    }
+    boolean fire =
+        event.getSource().getType() == Material.FIRE
+            || event.getSource().getType() == Material.SOUL_FIRE;
     event.setCancelled(
         denied(
             Optional.empty(),
-            ProtectionAction.FIRE_SPREAD,
+            fire ? ProtectionAction.FIRE_SPREAD : ProtectionAction.BLOCK_PLACE,
             Optional.of(event.getSource().getLocation()),
             Optional.of(event.getBlock().getLocation()),
             Optional.of(event.getNewState().getType().getKey()),
-            FIRE_CAUSE));
+            fire ? FIRE_CAUSE : NamespacedId.of("minecraft", "environment")));
   }
 
   private boolean explosionDenied(Location source, List<Block> affected) {

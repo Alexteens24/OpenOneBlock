@@ -11,14 +11,17 @@ import dev.openoneblock.paper.command.OpenOneBlockCommand;
 import dev.openoneblock.paper.command.PaperCommandMessenger;
 import dev.openoneblock.paper.command.PaperIslandCommandGateway;
 import dev.openoneblock.paper.protection.BukkitProtectionQueryFactory;
+import dev.openoneblock.paper.protection.PaperMechanicalProtectionListener;
 import dev.openoneblock.paper.protection.PaperProtectionListener;
 import dev.openoneblock.paper.scheduler.PaperPlatformTaskScheduler;
+import dev.openoneblock.protection.ProtectionEngine;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -72,13 +75,17 @@ public final class OpenOneBlockPlugin extends JavaPlugin {
         .global(
             () -> {
               if (protectionRegistered.compareAndSet(false, true)) {
+                Supplier<Optional<ProtectionEngine>> protection =
+                    () -> foundationRuntime().map(FoundationRuntime::protection);
+                BukkitProtectionQueryFactory queries =
+                    new BukkitProtectionQueryFactory("openoneblock.admin.bypass");
+                getServer()
+                    .getPluginManager()
+                    .registerEvents(new PaperProtectionListener(protection, queries), this);
                 getServer()
                     .getPluginManager()
                     .registerEvents(
-                        new PaperProtectionListener(
-                            () -> foundationRuntime().map(FoundationRuntime::protection),
-                            new BukkitProtectionQueryFactory("openoneblock.admin.bypass")),
-                        this);
+                        new PaperMechanicalProtectionListener(protection, queries), this);
               }
               return null;
             })
